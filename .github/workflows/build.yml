@@ -259,3 +259,10 @@ jobs:
           GROUP_ID: ${{ secrets.TELEGRAM_TO_GROUP }}
           CHANNEL_ID: ${{ secrets.TELEGRAM_TO_CHANNEL }}
         run: pnpm telegram
+
+  aur:
+    needs: [release]
+    uses: ./.github/workflows/aur-publish.yml
+    with:
+      tag: ${{ github.event.inputs.version != '' && github.event.inputs.version || github.ref_name }}
+    secrets: inherit
