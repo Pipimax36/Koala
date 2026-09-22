@@ -1,0 +1,18 @@
+name: Feature request
+description: 提出需求与验收标准
+title: '[Feature] '
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 要解决的问题与使用场景
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收标准
+      description: 描述用户可以观察到的完成条件及目标平台。
+    validations:
+      required: true
