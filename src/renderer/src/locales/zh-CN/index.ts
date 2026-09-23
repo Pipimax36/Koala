@@ -77,7 +77,7 @@ export default {
     invalidDomain: '不是合法的域名或通配符表达式',
     noData: '暂无数据',
     disabled: '禁用',
-    settings: '设置',
+    settings: '应用设置',
     hideSidebar: '隐藏',
     toggleSidebar: '展开',
     updateAvailable: '更新',
@@ -199,8 +199,8 @@ export default {
 
   sider: {
     home: '首页',
-    proxyGroup: '代理组',
-    profileManagement: '订阅管理',
+    proxyGroup: '代理',
+    profileManagement: '订阅',
     rules: '规则',
     connection: '连接',
     logs: '日志',
