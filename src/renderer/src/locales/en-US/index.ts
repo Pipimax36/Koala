@@ -1,4 +1,47 @@
 export default {
+  redesign: {
+    back: 'Back',
+    proxyMode: 'Proxy mode',
+    defaultMode: 'Default mode',
+    tunMode: 'Virtual adapter mode',
+    switchMode: 'Switch proxy mode',
+    switchModeHint:
+      'Switching briefly interrupts connections. The proxy stays enabled on success; on failure, the previous configuration is restored if possible.',
+    operationFailed: 'Operation failed',
+    recoveryFailed: 'Recovery incomplete. Check core and proxy settings',
+    outboundMode: 'Outbound mode',
+    rule: 'Rule',
+    global: 'Global',
+    direct: 'Direct',
+    applying: 'Applying…',
+    enabled: 'Proxy enabled',
+    disabled: 'Proxy disabled',
+    coreUnavailable: 'Core status unavailable',
+    coreUnavailableHint: 'Cannot read the core status. Refresh or check the core.',
+    refreshStatus: 'Refresh status',
+    unknown: 'Unknown',
+    loading: 'Loading…',
+    enableProxy: 'Enable proxy',
+    disableProxy: 'Disable proxy',
+    tunHint:
+      'Route traffic through a virtual adapter, including apps that ignore system proxy settings.',
+    defaultHint: 'Use the default proxy mode, respecting your system proxy preferences.',
+    portDisabled: 'The mixed port is disabled. Configure it in core settings first.',
+    upload: 'Upload',
+    download: 'Download',
+    total: 'total',
+    currentNode: 'Current node',
+    noNode: 'No available node',
+    chooseNode: 'Choose node',
+    outboundHint: 'Choose rule-based routing, global proxying, or direct access.',
+    currentProfile: 'Current subscription',
+    updateSubscription: 'Update subscription',
+    usedTraffic: 'Used traffic',
+    notProvided: 'Not provided',
+    connectivityHint:
+      'Proxy enabled describes the proxy setting; internet connectivity has not been verified.'
+  },
+
   common: {
     save: 'Save',
     cancel: 'Cancel',
