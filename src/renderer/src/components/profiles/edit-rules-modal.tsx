@@ -1,3 +1,5 @@
+import { saveRuleOverrides, validateRuleOverrides } from '@renderer/utils/rule-overrides'
+import { mutate } from 'swr'
 import { toast } from 'sonner'
 import {
   Dialog,
@@ -1151,6 +1153,9 @@ const EditRulesModal: React.FC<Props> = (props) => {
   const [deletedRules, setDeletedRules] = useState<Set<number>>(new Set())
   const [prependRules, setPrependRules] = useState<Set<number>>(new Set())
   const [appendRules, setAppendRules] = useState<Set<number>>(new Set())
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const saveLock = useRef(false)
   const [isLoading, setIsLoading] = useState(true)
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const [editingRule, setEditingRule] = useState<RuleItem | null>(null)
@@ -1360,13 +1365,17 @@ const EditRulesModal: React.FC<Props> = (props) => {
         return parts.join(',')
       })
 
-    return yaml.dump({ prepend: prependRuleStrings, append: appendRuleStrings, delete: deletedRuleStrings })
+    return yaml.dump({
+      prepend: prependRuleStrings,
+      append: appendRuleStrings,
+      delete: deletedRuleStrings
+    })
   }, [prependRules, appendRules, deletedRules, rules])
 
   const applyYamlToVisualState = useCallback(
     (yamlStr: string): boolean => {
       try {
-        const ruleData = yaml.load(yamlStr) as RuleOverrides | null
+        const ruleData = validateRuleOverrides(yaml.load(yamlStr))
         const initialRules = parseProfileRules(yaml.load(profileContent))
         const state = applyRuleOverrides(initialRules, ruleData)
 
@@ -1394,38 +1403,34 @@ const EditRulesModal: React.FC<Props> = (props) => {
         setIsYamlMode(false)
       }
     }
-  }, [
-    isYamlMode,
-    serializeToYaml,
-    applyYamlToVisualState,
-    yamlContent,
-    loadError,
-    rawRuleContent
-  ])
+  }, [isYamlMode, serializeToYaml, applyYamlToVisualState, yamlContent, loadError, rawRuleContent])
 
   const handleSave = useCallback(async (): Promise<boolean> => {
+    if (saveLock.current) return false
+    saveLock.current = true
+    setSaving(true)
+    setSaveError(null)
     try {
-      if (isYamlMode) {
-        yaml.load(yamlContent)
-        await setRuleStr(id, yamlContent)
-        return true
-      }
-
-      if (loadError) {
-        toast.error(t('profile.editRules.saveBlocked'))
-        return false
-      }
-
-      const ruleYaml = serializeToYaml()
-      await setRuleStr(id, ruleYaml)
+      if (loadError && !isYamlMode) throw new Error(t('profile.editRules.saveBlocked'))
+      const content = isYamlMode ? yamlContent : serializeToYaml()
+      validateRuleOverrides(yaml.load(content))
+      await saveRuleOverrides(content, {
+        read: () => getRuleStr(id),
+        write: (value) => setRuleStr(id, value),
+        apply: async () => {
+          if (isCurrentProfile) await mihomoHotReloadConfig()
+        }
+      })
+      await Promise.allSettled([mutate('mihomoRules'), mutate(['ruleOverrides', id])])
       return true
-    } catch (e) {
-      toast.error(
-        t('profile.editRules.saveError') + ': ' + (e instanceof Error ? e.message : String(e))
-      )
+    } catch (error) {
+      setSaveError(`${t('profile.editRules.saveError')}: ${String(error)}`)
       return false
+    } finally {
+      saveLock.current = false
+      setSaving(false)
     }
-  }, [isYamlMode, yamlContent, serializeToYaml, id, loadError, t])
+  }, [loadError, isYamlMode, yamlContent, serializeToYaml, id, isCurrentProfile, t])
 
   const handleRuleTypeChange = (selected: string): void => {
     const noResolveSupported = isRuleSupportsNoResolve(selected)
@@ -1780,7 +1785,7 @@ const EditRulesModal: React.FC<Props> = (props) => {
     <Dialog
       open={true}
       onOpenChange={(open) => {
-        if (!open) onClose()
+        if (!open && !saving) onClose()
       }}
     >
       <DialogContent
@@ -1790,12 +1795,7 @@ const EditRulesModal: React.FC<Props> = (props) => {
         <DialogHeader className="pb-0 app-drag">
           <div className="flex items-center justify-between">
             <DialogTitle>{t('profile.editRules.title')}</DialogTitle>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="app-nodrag"
-              onClick={handleToggleYamlMode}
-            >
+            <Button variant="ghost" size="sm" className="app-nodrag" onClick={handleToggleYamlMode}>
               <Code className="size-4" />
               {isYamlMode ? t('profile.editRules.visualMode') : t('profile.editRules.yamlMode')}
             </Button>
@@ -1821,312 +1821,320 @@ const EditRulesModal: React.FC<Props> = (props) => {
               />
             </div>
           ) : (
-          <div className="flex gap-4 h-full">
-            {/* Left panel - Rule form */}
-            <div className="w-2/5 flex flex-col gap-3 pr-1 overflow-y-auto min-h-0">
-              <div className="flex flex-col gap-3">
-                <div className="flex flex-col gap-1.5">
-                  <Label>{t('profile.editRules.ruleType')}</Label>
-                  <Select
-                    value={newRule.type}
-                    onValueChange={(value) => handleRuleTypeChange(value)}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent
-                      className="max-h-60"
-                      style={{ maxHeight: 240 }}
-                      position="popper"
+            <div className="flex gap-4 h-full">
+              {/* Left panel - Rule form */}
+              <div className="w-2/5 flex flex-col gap-3 pr-1 overflow-y-auto min-h-0">
+                <div className="flex flex-col gap-3">
+                  <div className="flex flex-col gap-1.5">
+                    <Label>{t('profile.editRules.ruleType')}</Label>
+                    <Select
+                      value={newRule.type}
+                      onValueChange={(value) => handleRuleTypeChange(value)}
                     >
-                      {ruleTypes.map((type) => (
-                        <SelectItem key={type} value={type}>
-                          {type}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="flex flex-col gap-1.5">
-                  <Label>{t('profile.editRules.payload')}</Label>
-                  {isNewRuleLogical ? (
-                    <Textarea
-                      placeholder={
-                        getRuleExample(newRule.type) || t('profile.editRules.payloadPlaceholder')
-                      }
-                      value={newRule.payload}
-                      onChange={(e) => setNewRule({ ...newRule, payload: e.target.value })}
-                      disabled={newRule.type === 'MATCH'}
-                      className={cn(
-                        'min-h-21 text-xs leading-5 font-mono resize-y',
-                        newRule.payload && newRule.type !== 'MATCH' && !isPayloadValid
-                          ? 'border-destructive focus-visible:border-destructive focus-visible:ring-destructive/50'
-                          : ''
-                      )}
-                    />
-                  ) : (
-                    <Input
-                      placeholder={
-                        getRuleExample(newRule.type) || t('profile.editRules.payloadPlaceholder')
-                      }
-                      value={newRule.payload}
-                      onChange={(e) => setNewRule({ ...newRule, payload: e.target.value })}
-                      disabled={newRule.type === 'MATCH'}
-                      className={cn(
-                        newRule.payload && newRule.type !== 'MATCH' && !isPayloadValid
-                          ? 'border-destructive focus-visible:border-destructive focus-visible:ring-destructive/50'
-                          : ''
-                      )}
-                    />
-                  )}
-                  {isNewRuleLogical && newRuleLogicalSummary.length > 0 && (
-                    <div className="flex flex-wrap gap-1">
-                      {newRuleLogicalSummary.slice(0, 4).map((clause, idx) => (
-                        <Badge
-                          key={`new-clause-${idx}`}
-                          variant="outline"
-                          className="text-[10px] max-w-65 truncate"
-                        >
-                          {clause}
-                        </Badge>
-                      ))}
-                      {newRuleLogicalSummary.length > 4 && (
-                        <Badge variant="outline" className="text-[10px]">
-                          +{newRuleLogicalSummary.length - 4}
-                        </Badge>
-                      )}
-                    </div>
-                  )}
-                  {newRule.payload && newRule.type !== 'MATCH' && !isPayloadValid && (
-                    <p className="text-[11px] text-destructive">
-                      {t('profile.editRules.expectedFormat') || 'Expected format'}:{' '}
-                      {getRuleExample(newRule.type)}
-                    </p>
-                  )}
-                </div>
-
-                <div className="flex flex-col gap-1.5">
-                  <Label>{t('profile.editRules.proxy')}</Label>
-                  <Popover modal open={newRuleProxyOpen} onOpenChange={setNewRuleProxyOpen}>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        role="combobox"
-                        className="w-full justify-between font-normal"
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent
+                        className="max-h-60"
+                        style={{ maxHeight: 240 }}
+                        position="popper"
                       >
-                        <span className="truncate">
-                          {newRule.proxy || t('profile.editRules.proxyPlaceholder')}
-                        </span>
-                        <ChevronsUpDownIcon className="ml-2 size-4 shrink-0 opacity-50" />
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent
-                      className="p-0 bg-card/90 h-60"
-                      align="start"
-                      style={{ width: 'var(--radix-popper-anchor-width)' }}
-                    >
-                      <Command>
-                        <CommandInput placeholder={t('profile.editRules.proxyPlaceholder')} />
-                        <CommandList>
-                          <CommandEmpty>No results</CommandEmpty>
-                          <CommandGroup>
-                            {proxyGroups.map((group) => (
-                              <CommandItem
-                                key={group}
-                                value={group}
-                                onSelect={(value) => {
-                                  setNewRule({ ...newRule, proxy: value })
-                                  setNewRuleProxyOpen(false)
-                                }}
-                              >
-                                {group}
-                                <CheckIcon
-                                  className={cn(
-                                    'ml-auto size-4',
-                                    newRule.proxy === group ? 'opacity-100' : 'opacity-0'
-                                  )}
-                                />
-                              </CommandItem>
-                            ))}
-                          </CommandGroup>
-                        </CommandList>
-                      </Command>
-                    </PopoverContent>
-                  </Popover>
-                </div>
+                        {ruleTypes.map((type) => (
+                          <SelectItem key={type} value={type}>
+                            {type}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-                {/* Additional params - horizontal switches */}
-                {(isRuleSupportsNoResolve(newRule.type) || isRuleSupportsSrc(newRule.type)) && (
-                  <>
-                    <Separator />
-                    <div className="flex items-center gap-4">
-                      {isRuleSupportsNoResolve(newRule.type) && (
-                        <div className="flex items-center gap-2">
-                          <Switch
-                            id="no-resolve"
-                            size="sm"
-                            checked={newRule.additionalParams?.includes('no-resolve') || false}
-                            onCheckedChange={(checked) =>
-                              handleAdditionalParamChange('no-resolve', checked)
-                            }
-                          />
-                          <Label htmlFor="no-resolve" className="text-xs">
-                            {t('profile.editRules.noResolve')}
-                          </Label>
-                        </div>
-                      )}
-                      {isRuleSupportsSrc(newRule.type) && (
-                        <div className="flex items-center gap-2">
-                          <Switch
-                            id="src"
-                            size="sm"
-                            checked={newRule.additionalParams?.includes('src') || false}
-                            onCheckedChange={(checked) =>
-                              handleAdditionalParamChange('src', checked)
-                            }
-                          />
-                          <Label htmlFor="src" className="text-xs">
-                            {t('profile.editRules.src')}
-                          </Label>
-                        </div>
-                      )}
-                    </div>
-                  </>
-                )}
-
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    className="flex-1"
-                    onClick={() => handleAddRule('prepend')}
-                    disabled={
-                      isLoading || !!loadError || isAddRuleDisabled(newRule, validateRulePayload)
-                    }
-                  >
-                    <ArrowUpToLine className="size-4" />
-                    {t('profile.editRules.addRulePrepend')}
-                  </Button>
-                  <Button
-                    className="flex-1"
-                    variant="outline"
-                    onClick={() => handleAddRule('append')}
-                    disabled={
-                      isLoading || !!loadError || isAddRuleDisabled(newRule, validateRulePayload)
-                    }
-                  >
-                    <ArrowDownToLine className="size-4" />
-                    {t('profile.editRules.addRuleAppend')}
-                  </Button>
-                </div>
-              </div>
-
-              {/* Collapsible instructions */}
-              <Accordion type="single" collapsible className="mt-auto">
-                <AccordionItem value="instructions" className="border-b-0">
-                  <AccordionTrigger className="text-sm py-2">
-                    {t('profile.editRules.instructions')}
-                  </AccordionTrigger>
-                  <AccordionContent>
-                    <div className="text-xs text-muted-foreground space-y-1.5">
-                      <p>{t('profile.editRules.instructions1')}</p>
-                      <p>{t('profile.editRules.instructions2')}</p>
-                      <p>{t('profile.editRules.instructions3')}</p>
-                    </div>
-                  </AccordionContent>
-                </AccordionItem>
-              </Accordion>
-            </div>
-
-            {/* Right panel - Rule list in actual order */}
-            <div className="w-3/5 border-l pl-4 pr-1 flex flex-col min-h-0">
-              <div className="flex items-center gap-2 mb-3">
-                <div className="flex items-center gap-2 shrink-0">
-                  <h3 className="text-lg font-semibold whitespace-nowrap">{t('profile.editRules.currentRules')}</h3>
-                  <Badge variant="secondary">{rules.length}</Badge>
-                  {customRulesCount > 0 && (
-                    <Badge
-                      variant="outline"
-                      className="text-[10px] text-emerald-700 dark:text-emerald-400 border-emerald-600/40 dark:border-emerald-500/40 bg-emerald-50 dark:bg-emerald-950/50"
-                    >
-                      +{customRulesCount}
-                    </Badge>
-                  )}
-                </div>
-                <Input
-                  placeholder={t('profile.editRules.searchPlaceholder')}
-                  className="min-w-0 h-8 ml-auto"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
-              </div>
-
-              <DndContext
-                sensors={sensors}
-                collisionDetection={closestCenter}
-                onDragStart={handleDragStart}
-                onDragEnd={handleDragEnd}
-                onDragCancel={handleDragCancel}
-              >
-                <SortableContext
-                  items={isDragEnabled ? sortableIds : []}
-                  strategy={verticalListSortingStrategy}
-                >
-                  <div className="flex flex-col gap-1.5 overflow-y-auto flex-1 pr-1">
-                    {isLoading ? (
-                      <div className="flex flex-col items-center justify-center h-full py-8 gap-2">
-                        <Spinner className="size-8" />
-                        <span className="text-sm text-muted-foreground">
-                          {t('common.loading') || 'Loading...'}
-                        </span>
-                      </div>
-                    ) : filteredRules.length === 0 ? (
-                      <div className="text-center text-muted-foreground py-4">
-                        {rules.length === 0
-                          ? t('profile.editRules.noRules')
-                          : searchTerm
-                            ? t('profile.editRules.noMatchingRules')
-                            : t('profile.editRules.noRules')}
-                      </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label>{t('profile.editRules.payload')}</Label>
+                    {isNewRuleLogical ? (
+                      <Textarea
+                        placeholder={
+                          getRuleExample(newRule.type) || t('profile.editRules.payloadPlaceholder')
+                        }
+                        value={newRule.payload}
+                        onChange={(e) => setNewRule({ ...newRule, payload: e.target.value })}
+                        disabled={newRule.type === 'MATCH'}
+                        className={cn(
+                          'min-h-21 text-xs leading-5 font-mono resize-y',
+                          newRule.payload && newRule.type !== 'MATCH' && !isPayloadValid
+                            ? 'border-destructive focus-visible:border-destructive focus-visible:ring-destructive/50'
+                            : ''
+                        )}
+                      />
                     ) : (
-                      filteredRules.map((rule) => {
-                        const originalIndex = ruleIndexMap.get(rule) ?? -1
-                        const isDeleted = deletedRules.has(originalIndex)
-                        const custom = isRuleCustom(rule)
-
-                        return (
-                          <RuleListItem
-                            key={rule.id}
-                            rule={rule}
-                            originalIndex={originalIndex}
-                            isDeleted={isDeleted}
-                            isCustom={custom}
-                            sortableId={rule.id}
-                            isDragDisabled={!isDragEnabled}
-                            onRemove={handleRemoveRule}
-                            isEditing={editingIndex === originalIndex}
-                            editingRule={editingIndex === originalIndex ? editingRule : null}
-                            onStartEditing={handleStartEditing}
-                            onCancelEditing={handleCancelEditing}
-                            onConfirmEditing={handleConfirmEditing}
-                            onEditingRuleChange={handleEditingRuleChange}
-                            proxyGroups={proxyGroups}
-                          />
-                        )
-                      })
+                      <Input
+                        placeholder={
+                          getRuleExample(newRule.type) || t('profile.editRules.payloadPlaceholder')
+                        }
+                        value={newRule.payload}
+                        onChange={(e) => setNewRule({ ...newRule, payload: e.target.value })}
+                        disabled={newRule.type === 'MATCH'}
+                        className={cn(
+                          newRule.payload && newRule.type !== 'MATCH' && !isPayloadValid
+                            ? 'border-destructive focus-visible:border-destructive focus-visible:ring-destructive/50'
+                            : ''
+                        )}
+                      />
+                    )}
+                    {isNewRuleLogical && newRuleLogicalSummary.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {newRuleLogicalSummary.slice(0, 4).map((clause, idx) => (
+                          <Badge
+                            key={`new-clause-${idx}`}
+                            variant="outline"
+                            className="text-[10px] max-w-65 truncate"
+                          >
+                            {clause}
+                          </Badge>
+                        ))}
+                        {newRuleLogicalSummary.length > 4 && (
+                          <Badge variant="outline" className="text-[10px]">
+                            +{newRuleLogicalSummary.length - 4}
+                          </Badge>
+                        )}
+                      </div>
+                    )}
+                    {newRule.payload && newRule.type !== 'MATCH' && !isPayloadValid && (
+                      <p className="text-[11px] text-destructive">
+                        {t('profile.editRules.expectedFormat') || 'Expected format'}:{' '}
+                        {getRuleExample(newRule.type)}
+                      </p>
                     )}
                   </div>
-                </SortableContext>
-                {createPortal(dragOverlayNode, document.body)}
-              </DndContext>
+
+                  <div className="flex flex-col gap-1.5">
+                    <Label>{t('profile.editRules.proxy')}</Label>
+                    <Popover modal open={newRuleProxyOpen} onOpenChange={setNewRuleProxyOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          className="w-full justify-between font-normal"
+                        >
+                          <span className="truncate">
+                            {newRule.proxy || t('profile.editRules.proxyPlaceholder')}
+                          </span>
+                          <ChevronsUpDownIcon className="ml-2 size-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent
+                        className="p-0 bg-card/90 h-60"
+                        align="start"
+                        style={{ width: 'var(--radix-popper-anchor-width)' }}
+                      >
+                        <Command>
+                          <CommandInput placeholder={t('profile.editRules.proxyPlaceholder')} />
+                          <CommandList>
+                            <CommandEmpty>No results</CommandEmpty>
+                            <CommandGroup>
+                              {proxyGroups.map((group) => (
+                                <CommandItem
+                                  key={group}
+                                  value={group}
+                                  onSelect={(value) => {
+                                    setNewRule({ ...newRule, proxy: value })
+                                    setNewRuleProxyOpen(false)
+                                  }}
+                                >
+                                  {group}
+                                  <CheckIcon
+                                    className={cn(
+                                      'ml-auto size-4',
+                                      newRule.proxy === group ? 'opacity-100' : 'opacity-0'
+                                    )}
+                                  />
+                                </CommandItem>
+                              ))}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+
+                  {/* Additional params - horizontal switches */}
+                  {(isRuleSupportsNoResolve(newRule.type) || isRuleSupportsSrc(newRule.type)) && (
+                    <>
+                      <Separator />
+                      <div className="flex items-center gap-4">
+                        {isRuleSupportsNoResolve(newRule.type) && (
+                          <div className="flex items-center gap-2">
+                            <Switch
+                              id="no-resolve"
+                              size="sm"
+                              checked={newRule.additionalParams?.includes('no-resolve') || false}
+                              onCheckedChange={(checked) =>
+                                handleAdditionalParamChange('no-resolve', checked)
+                              }
+                            />
+                            <Label htmlFor="no-resolve" className="text-xs">
+                              {t('profile.editRules.noResolve')}
+                            </Label>
+                          </div>
+                        )}
+                        {isRuleSupportsSrc(newRule.type) && (
+                          <div className="flex items-center gap-2">
+                            <Switch
+                              id="src"
+                              size="sm"
+                              checked={newRule.additionalParams?.includes('src') || false}
+                              onCheckedChange={(checked) =>
+                                handleAdditionalParamChange('src', checked)
+                              }
+                            />
+                            <Label htmlFor="src" className="text-xs">
+                              {t('profile.editRules.src')}
+                            </Label>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      className="flex-1"
+                      onClick={() => handleAddRule('prepend')}
+                      disabled={
+                        isLoading || !!loadError || isAddRuleDisabled(newRule, validateRulePayload)
+                      }
+                    >
+                      <ArrowUpToLine className="size-4" />
+                      {t('profile.editRules.addRulePrepend')}
+                    </Button>
+                    <Button
+                      className="flex-1"
+                      variant="outline"
+                      onClick={() => handleAddRule('append')}
+                      disabled={
+                        isLoading || !!loadError || isAddRuleDisabled(newRule, validateRulePayload)
+                      }
+                    >
+                      <ArrowDownToLine className="size-4" />
+                      {t('profile.editRules.addRuleAppend')}
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Collapsible instructions */}
+                <Accordion type="single" collapsible className="mt-auto">
+                  <AccordionItem value="instructions" className="border-b-0">
+                    <AccordionTrigger className="text-sm py-2">
+                      {t('profile.editRules.instructions')}
+                    </AccordionTrigger>
+                    <AccordionContent>
+                      <div className="text-xs text-muted-foreground space-y-1.5">
+                        <p>{t('profile.editRules.instructions1')}</p>
+                        <p>{t('profile.editRules.instructions2')}</p>
+                        <p>{t('profile.editRules.instructions3')}</p>
+                      </div>
+                    </AccordionContent>
+                  </AccordionItem>
+                </Accordion>
+              </div>
+
+              {/* Right panel - Rule list in actual order */}
+              <div className="w-3/5 border-l pl-4 pr-1 flex flex-col min-h-0">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="flex items-center gap-2 shrink-0">
+                    <h3 className="text-lg font-semibold whitespace-nowrap">
+                      {t('profile.editRules.currentRules')}
+                    </h3>
+                    <Badge variant="secondary">{rules.length}</Badge>
+                    {customRulesCount > 0 && (
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] text-emerald-700 dark:text-emerald-400 border-emerald-600/40 dark:border-emerald-500/40 bg-emerald-50 dark:bg-emerald-950/50"
+                      >
+                        +{customRulesCount}
+                      </Badge>
+                    )}
+                  </div>
+                  <Input
+                    placeholder={t('profile.editRules.searchPlaceholder')}
+                    className="min-w-0 h-8 ml-auto"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                </div>
+
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragStart={handleDragStart}
+                  onDragEnd={handleDragEnd}
+                  onDragCancel={handleDragCancel}
+                >
+                  <SortableContext
+                    items={isDragEnabled ? sortableIds : []}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    <div className="flex flex-col gap-1.5 overflow-y-auto flex-1 pr-1">
+                      {isLoading ? (
+                        <div className="flex flex-col items-center justify-center h-full py-8 gap-2">
+                          <Spinner className="size-8" />
+                          <span className="text-sm text-muted-foreground">
+                            {t('common.loading') || 'Loading...'}
+                          </span>
+                        </div>
+                      ) : filteredRules.length === 0 ? (
+                        <div className="text-center text-muted-foreground py-4">
+                          {rules.length === 0
+                            ? t('profile.editRules.noRules')
+                            : searchTerm
+                              ? t('profile.editRules.noMatchingRules')
+                              : t('profile.editRules.noRules')}
+                        </div>
+                      ) : (
+                        filteredRules.map((rule) => {
+                          const originalIndex = ruleIndexMap.get(rule) ?? -1
+                          const isDeleted = deletedRules.has(originalIndex)
+                          const custom = isRuleCustom(rule)
+
+                          return (
+                            <RuleListItem
+                              key={rule.id}
+                              rule={rule}
+                              originalIndex={originalIndex}
+                              isDeleted={isDeleted}
+                              isCustom={custom}
+                              sortableId={rule.id}
+                              isDragDisabled={!isDragEnabled}
+                              onRemove={handleRemoveRule}
+                              isEditing={editingIndex === originalIndex}
+                              editingRule={editingIndex === originalIndex ? editingRule : null}
+                              onStartEditing={handleStartEditing}
+                              onCancelEditing={handleCancelEditing}
+                              onConfirmEditing={handleConfirmEditing}
+                              onEditingRuleChange={handleEditingRuleChange}
+                              proxyGroups={proxyGroups}
+                            />
+                          )
+                        })
+                      )}
+                    </div>
+                  </SortableContext>
+                  {createPortal(dragOverlayNode, document.body)}
+                </DndContext>
+              </div>
             </div>
-          </div>
           )}
         </div>
+        {saveError && (
+          <p role="alert" className="break-words text-sm text-destructive">
+            {saveError}
+          </p>
+        )}
         <DialogFooter className="pt-0">
           <DialogClose asChild>
             <Button
               size="sm"
               variant="ghost"
+              disabled={saving}
               onClick={() => {
                 setDeletedRules(new Set())
               }}
@@ -2139,14 +2147,11 @@ const EditRulesModal: React.FC<Props> = (props) => {
           </DialogClose>
           <Button
             size="sm"
-            disabled={isLoading || (!!loadError && !isYamlMode)}
+            disabled={saving || isLoading || (!!loadError && !isYamlMode)}
             onClick={async () => {
               const saved = await handleSave()
               if (saved) {
                 closeWithAnimation()
-                if (isCurrentProfile) {
-                  await mihomoHotReloadConfig()
-                }
               }
             }}
           >
