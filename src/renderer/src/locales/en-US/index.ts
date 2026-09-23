@@ -1,5 +1,13 @@
 export default {
   redesign: {
+    previewSubscription: 'Preview another subscription',
+    liveNodes: 'Live nodes',
+    previewHint:
+      'Read-only preview. It does not change the active subscription or node. Selection and latency tests are disabled.',
+    previewProviders: 'Dynamic providers (loaded by the core when active)',
+    untested: 'Untested',
+    timeout: 'Timeout',
+
     profileHint:
       'Manage subscriptions and updates. Use the drag handle to reorder; sorting is disabled while searching.',
     noResults: 'No matching results',

@@ -1,5 +1,12 @@
 export default {
   redesign: {
+    previewSubscription: '预览备用订阅',
+    liveNodes: '当前运行节点',
+    previewHint: '只读预览：不会切换订阅或当前节点，不能在预览中选择或测速。',
+    previewProviders: '动态节点提供者（启用后由内核加载）',
+    untested: '未测试',
+    timeout: '超时',
+
     profileHint: '管理订阅来源和更新状态。使用左侧拖动柄排序，搜索时暂停排序。',
     noResults: '没有匹配结果',
     useProfile: '使用此订阅',

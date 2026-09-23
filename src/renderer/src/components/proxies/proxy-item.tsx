@@ -5,7 +5,8 @@ import { mihomoUnfixedProxy } from '@renderer/utils/ipc'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Spinner } from '@renderer/components/ui/spinner'
-import { Gauge, MapPin } from 'lucide-react'
+import { toast } from 'sonner'
+import { MapPin } from 'lucide-react'
 
 interface Props {
   mutateProxies: () => void
@@ -18,6 +19,8 @@ interface Props {
   group: ControllerMixedGroup
   onSelect: (group: string, proxy: string) => void
   selected: boolean
+  delayFailed?: boolean
+  disabled?: boolean
   isGroupDelaying?: boolean
 }
 
@@ -30,15 +33,25 @@ function delayColorClass(delay: number): string {
 
 const ProxyItem: React.FC<Props> = React.memo((props) => {
   const { t } = useTranslation()
-  const { mutateProxies, proxyDisplayLayout, group, proxy, selected, onSelect, onProxyDelay, isGroupDelaying } =
-    props
+  const {
+    mutateProxies,
+    proxyDisplayLayout,
+    group,
+    proxy,
+    selected,
+    onSelect,
+    onProxyDelay,
+    isGroupDelaying
+  } = props
 
+  const [testFailed, setTestFailed] = useState(false)
   const delay = useMemo(() => {
+    if (testFailed || props.delayFailed) return 0
     if (proxy.history.length > 0) {
       return proxy.history[proxy.history.length - 1].delay
     }
     return -1
-  }, [proxy])
+  }, [proxy, testFailed, props.delayFailed])
 
   const [loading, setLoading] = useState(false)
   const [waitingForNewDelay, setWaitingForNewDelay] = useState(false)
@@ -66,9 +79,9 @@ const ProxyItem: React.FC<Props> = React.memo((props) => {
   const showLoading = loading || isGroupDelaying || waitingForNewDelay
 
   function delayContent(d: number): React.ReactNode {
-    if (d === -1) return <Gauge className="size-3.5" />
-    if (d === 0) return '–'
-    return d.toString()
+    if (d === -1) return t('redesign.untested')
+    if (d === 0) return t('redesign.timeout')
+    return `${d} ms`
   }
 
   const delayIndicator = (
@@ -81,11 +94,17 @@ const ProxyItem: React.FC<Props> = React.memo((props) => {
   )
 
   const onDelay = (): void => {
+    setTestFailed(false)
     setLoading(true)
-    onProxyDelay(proxy, group.testUrl).finally(() => {
-      mutateProxies()
-      setLoading(false)
-    })
+    onProxyDelay(proxy, group.testUrl)
+      .catch((error) => {
+        setTestFailed(true)
+        toast.error(String(error))
+      })
+      .finally(() => {
+        mutateProxies()
+        setLoading(false)
+      })
   }
 
   const displayType =
@@ -94,7 +113,20 @@ const ProxyItem: React.FC<Props> = React.memo((props) => {
 
   return (
     <Card
-      onClick={() => onSelect(group.name, proxy.name)}
+      role="button"
+      tabIndex={0}
+      aria-pressed={selected}
+      aria-disabled={props.disabled}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          if (!props.disabled) onSelect(group.name, proxy.name)
+        }
+      }}
+      onClick={() => {
+        if (!props.disabled) onSelect(group.name, proxy.name)
+      }}
       className={cn(
         'w-full gap-0 py-0 rounded-lg cursor-pointer transition-all duration-150 relative overflow-hidden',
         fixed
@@ -127,8 +159,12 @@ const ProxyItem: React.FC<Props> = React.memo((props) => {
                     title={t('proxies.unpin')}
                     onClick={async (e) => {
                       e.stopPropagation()
-                      await mihomoUnfixedProxy(group.name)
-                      mutateProxies()
+                      try {
+                        await mihomoUnfixedProxy(group.name)
+                        mutateProxies()
+                      } catch (error) {
+                        toast.error(String(error))
+                      }
                     }}
                     className="h-6 w-6 min-w-6 p-0 text-amber-500 hover:text-amber-600 opacity-60 hover:opacity-100"
                   >
@@ -137,13 +173,14 @@ const ProxyItem: React.FC<Props> = React.memo((props) => {
                 )}
                 <Button
                   variant="ghost"
+                  aria-label={`${t('sider.delayTest')}: ${proxy.name}`}
                   title={proxy.type}
                   disabled={showLoading}
                   onClick={(e) => {
                     e.stopPropagation()
                     onDelay()
                   }}
-                  className="h-7 w-8 min-w-8 px-0 text-xs font-medium cursor-pointer"
+                  className="h-7 min-w-20 px-2 text-xs font-medium cursor-pointer"
                 >
                   {delayIndicator}
                 </Button>
@@ -168,8 +205,12 @@ const ProxyItem: React.FC<Props> = React.memo((props) => {
                     title={t('proxies.unpin')}
                     onClick={async (e) => {
                       e.stopPropagation()
-                      await mihomoUnfixedProxy(group.name)
-                      mutateProxies()
+                      try {
+                        await mihomoUnfixedProxy(group.name)
+                        mutateProxies()
+                      } catch (error) {
+                        toast.error(String(error))
+                      }
                     }}
                     className="h-6 w-6 min-w-6 p-0 text-amber-500 hover:text-amber-600 opacity-60 hover:opacity-100"
                   >
@@ -178,13 +219,14 @@ const ProxyItem: React.FC<Props> = React.memo((props) => {
                 )}
                 <Button
                   variant="ghost"
+                  aria-label={`${t('sider.delayTest')}: ${proxy.name}`}
                   title={proxy.type}
                   disabled={showLoading}
                   onClick={(e) => {
                     e.stopPropagation()
                     onDelay()
                   }}
-                  className="h-7 w-8 min-w-8 px-0 text-xs font-medium cursor-pointer"
+                  className="h-7 min-w-20 px-2 text-xs font-medium cursor-pointer"
                 >
                   {delayIndicator}
                 </Button>
