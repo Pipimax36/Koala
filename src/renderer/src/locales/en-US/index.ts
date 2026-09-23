@@ -1,5 +1,14 @@
 export default {
   redesign: {
+    settingsHint:
+      'Manage appearance, startup and proxy preferences using your existing configuration.',
+    appearanceLanguage: 'Appearance and language',
+    startupPreferences: 'Startup preferences',
+    proxyPreferences: 'Proxy and network',
+    advancedPreferences: 'Advanced settings and application',
+    settingsProxyHint:
+      'Uses the same proxy state as Home. Selecting a mode while disabled does not connect; switching an enabled mode requires confirmation.',
+
     saved: 'Saved and applied',
     coreReady: 'Core running',
     restarting: 'Restarting…',

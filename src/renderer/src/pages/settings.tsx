@@ -18,6 +18,7 @@ const Settings: React.FC = () => {
   return (
     <BasePage
       title={t('pages.settings.title')}
+      contentClassName="ui-page"
       header={
         <>
           <Button
@@ -34,16 +35,39 @@ const Settings: React.FC = () => {
         </>
       }
     >
-      <ProxySwitches />
-      <GeneralConfig showHiddenSettings={showHiddenSettings} />
-      <LanguageConfig />
-      <AppearanceConfig showHiddenSettings={showHiddenSettings} />
-      <AdvancedSettings showHiddenSettings={showHiddenSettings} />
-      <ShortcutConfig />
-      <Actions
-        showHiddenSettings={showHiddenSettings}
-        onUnlockHiddenSettings={() => setShowHiddenSettings(true)}
-      />
+      <div className="mx-auto w-full max-w-4xl space-y-7">
+        <p className="ui-description">{t('redesign.settingsHint')}</p>
+        <section aria-labelledby="appearance-heading">
+          <h2 id="appearance-heading" className="mb-3 text-sm font-semibold">
+            {t('redesign.appearanceLanguage')}
+          </h2>
+          <LanguageConfig />
+          <AppearanceConfig showHiddenSettings={showHiddenSettings} />
+        </section>
+        <section aria-labelledby="startup-heading">
+          <h2 id="startup-heading" className="mb-3 text-sm font-semibold">
+            {t('redesign.startupPreferences')}
+          </h2>
+          <GeneralConfig showHiddenSettings={showHiddenSettings} />
+        </section>
+        <section aria-labelledby="proxy-heading">
+          <h2 id="proxy-heading" className="mb-3 text-sm font-semibold">
+            {t('redesign.proxyPreferences')}
+          </h2>
+          <ProxySwitches />
+        </section>
+        <section aria-labelledby="advanced-heading">
+          <h2 id="advanced-heading" className="mb-3 text-sm font-semibold">
+            {t('redesign.advancedPreferences')}
+          </h2>
+          <AdvancedSettings showHiddenSettings={showHiddenSettings} />
+          <ShortcutConfig />
+          <Actions
+            showHiddenSettings={showHiddenSettings}
+            onUnlockHiddenSettings={() => setShowHiddenSettings(true)}
+          />
+        </section>
+      </div>
     </BasePage>
   )
 }
