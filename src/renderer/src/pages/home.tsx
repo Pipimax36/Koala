@@ -1,44 +1,30 @@
-import { toast } from 'sonner'
-import BasePage from '@renderer/components/base/base-page'
-import { useAppConfig } from '@renderer/hooks/use-app-config'
-import { useControledMihomoConfig } from '@renderer/hooks/use-controled-mihomo-config'
-import { useProfileConfig } from '@renderer/hooks/use-profile-config'
-import { useGroups } from '@renderer/hooks/use-groups'
-import { triggerSysProxy, updateTrayIcon, mihomoHotReloadConfig } from '@renderer/utils/ipc'
+import { memo, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { memo, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import dayjs from 'dayjs'
-import Power from '@renderer/assets/on_icon.svg'
-import Pause from '@renderer/assets/pause_icon.svg'
+import { toast } from 'sonner'
 import {
-  InfinityIcon,
-  WifiOff,
-  PlusCircle,
-  ChevronRight,
-  Globe,
+  Power,
   ArrowUp,
   ArrowDown,
   RefreshCcw,
-  CalendarClock,
-  CreditCard
+  Plus,
+  ChevronRight,
+  WifiOff,
+  ExternalLink
 } from 'lucide-react'
-import { SiTelegram } from 'react-icons/si'
-import EditInfoModal from '@renderer/components/profiles/edit-info-modal'
+import BasePage from '@renderer/components/base/base-page'
+import { Button } from '@renderer/components/ui/button'
 import { Spinner } from '@renderer/components/ui/spinner'
-import { CharacterMorph } from '@renderer/components/ui/character-morph'
-import { calcTraffic } from '@renderer/utils/calc'
+import EditInfoModal from '@renderer/components/profiles/edit-info-modal'
+import ProxyModeTabs from '@renderer/components/home/proxy-mode-tabs'
+import OutboundModeSwitcher from '@renderer/components/sider/outbound-mode-switcher'
+import { useProxyControl } from '@renderer/hooks/use-proxy-control'
+import { useProfileConfig } from '@renderer/hooks/use-profile-config'
+import { useGroups } from '@renderer/hooks/use-groups'
 import { useTrafficStore } from '@renderer/store/traffic-store'
-
-function formatBytes(bytes: number): string {
-  if (bytes <= 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(1024))
-  return `${(bytes / Math.pow(1024, i)).toFixed(i > 1 ? 1 : 0)} ${units[i]}`
-}
-
-// Days left at which the stats block is replaced by the renewal notice
-const EXPIRY_WARNING_DAYS = 3
+import { addProfileItem } from '@renderer/utils/ipc'
+import { calcTraffic } from '@renderer/utils/calc'
 
 // Module-level variable: persists across component mounts/unmounts
 let connectionStartTime: number | null = null
@@ -79,431 +65,304 @@ ConnectedTimer.displayName = 'ConnectedTimer'
 
 const Home: React.FC = () => {
   const { t } = useTranslation()
-  const { appConfig, patchAppConfig } = useAppConfig()
-  const {
-    mainSwitchMode = 'tun',
-    sysProxy,
-    proxyMode = false,
-    onlyActiveDevice = false
-  } = appConfig || {}
-  const { enable: writeSysProxy = true, mode } = sysProxy || {}
-  const { controledMihomoConfig, patchControledMihomoConfig } = useControledMihomoConfig()
-  const { tun } = controledMihomoConfig || {}
-  const { 'mixed-port': mixedPort } = controledMihomoConfig || {}
-  const sysProxyDisabled = mixedPort == 0
-
-  const { profileConfig, addProfileItem } = useProfileConfig()
-  const { groups } = useGroups()
   const navigate = useNavigate()
-  const hasProfiles = (profileConfig?.items?.length ?? 0) > 0
-  const [showEditModal, setShowEditModal] = useState(false)
-  const [editingItem, setEditingItem] = useState<ProfileItem | null>(null)
+  const control = useProxyControl()
+  const { profileConfig, mutateProfileConfig } = useProfileConfig()
+  const { groups } = useGroups()
+  const traffic = useTrafficStore((s) => s.traffic)
+  const [editing, setEditing] = useState<ProfileItem | null>(null)
   const [updating, setUpdating] = useState(false)
-
-  const handleAddProfile = (): void => {
-    const newProfile: ProfileItem = {
-      id: '',
-      name: '',
-      type: 'remote',
-      url: '',
-      useProxy: false,
-      autoUpdate: true
-    }
-    setEditingItem(newProfile)
-    setShowEditModal(true)
-  }
-
-  const trafficInfo = useTrafficStore((s) => s.traffic)
-
-  const [loading, setLoading] = useState(false)
-  const [loadingDirection, setLoadingDirection] = useState<'connecting' | 'disconnecting'>(
-    'connecting'
-  )
-
-  const isSelected = (tun?.enable ?? false) || proxyMode
-
-  const isDisabled =
-    loading ||
-    (mainSwitchMode === 'sysproxy' && writeSysProxy && mode == 'manual' && sysProxyDisabled)
-
-  const status = loading
-    ? loadingDirection === 'connecting'
-      ? t('pages.home.connecting')
-      : t('pages.home.disconnecting')
-    : isSelected
-      ? t('pages.home.connected')
-      : t('pages.home.disconnected')
-  const statusWidthTexts = [
-    t('pages.home.connecting'),
-    t('pages.home.disconnecting'),
-    t('pages.home.connected'),
-    t('pages.home.disconnected')
-  ]
-  const showConnectedTimer = !loading && isSelected
-
-  // Current profile & subscription
-  const currentProfile = useMemo(() => {
-    if (!profileConfig?.current || !profileConfig?.items) return null
-    return profileConfig.items.find((item) => item.id === profileConfig.current) ?? null
-  }, [profileConfig])
-
-  const handleUpdateProfile = async (): Promise<void> => {
-    if (!currentProfile || updating) return
+  const [groupName, setGroupName] = useState('')
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 60_000)
+    return () => clearInterval(id)
+  }, [])
+  const current = profileConfig?.items.find((item) => item.id === profileConfig.current)
+  const group = groups?.find((item) => item.name === groupName) ?? groups?.[0]
+  const extra = current?.extra
+  const usageKnown = extra?.upload !== undefined && extra?.download !== undefined
+  const used = (extra?.upload ?? 0) + (extra?.download ?? 0)
+  const total = extra?.total
+  const quotaKnown = usageKnown && total !== undefined && total > 0
+  const expires = extra?.expire
+  const days =
+    expires && expires > 0 ? Math.max(0, Math.ceil((expires * 1000 - now) / 86400000)) : undefined
+  const expired = Boolean(expires && expires * 1000 <= now)
+  const renewal = current?.home || current?.supportUrl
+  const hasProfiles = Boolean(profileConfig?.items.length)
+  const status = control.busy
+    ? t('redesign.applying')
+    : control.runtimeError
+      ? t('redesign.coreUnavailable')
+      : control.enabled
+        ? t('redesign.enabled')
+        : t('redesign.disabled')
+  const newProfile = (): void =>
+    setEditing({ id: '', name: '', type: 'remote', url: '', useProxy: false, autoUpdate: true })
+  const update = async (): Promise<void> => {
+    if (!current || updating) return
     setUpdating(true)
     try {
-      await addProfileItem(currentProfile)
-    } catch (e) {
-      toast.error(`${e}`)
+      await addProfileItem(current)
+    } catch (error) {
+      toast.error(String(error))
     } finally {
+      mutateProfileConfig()
       setUpdating(false)
     }
   }
 
-  const subscription = currentProfile?.extra
-  const trafficUsed = (subscription?.upload ?? 0) + (subscription?.download ?? 0)
-  const trafficTotal = subscription?.total ?? 0
-  const trafficRemaining = trafficTotal > 0 ? trafficTotal - trafficUsed : 0
-  const expireTimestamp = subscription?.expire ?? 0
-  const expireDate =
-    expireTimestamp > 0 ? dayjs.unix(expireTimestamp).format('L') : t('pages.home.never')
-
-  // Re-evaluate the countdown while the window stays open so the notice appears on time
-  const [expiryTick, setExpiryTick] = useState(0)
-  useEffect(() => {
-    if (expireTimestamp <= 0) return undefined
-    const interval = setInterval(() => setExpiryTick((n) => n + 1), 60_000)
-    return () => clearInterval(interval)
-  }, [expireTimestamp])
-
-  const { daysRemaining, isExpired } = useMemo(() => {
-    if (expireTimestamp <= 0) return { daysRemaining: 0, isExpired: false }
-    const expiresAt = dayjs.unix(expireTimestamp)
-    return {
-      daysRemaining: Math.max(0, expiresAt.diff(dayjs(), 'day')),
-      isExpired: expiresAt.isBefore(dayjs())
-    }
-  }, [expireTimestamp, expiryTick])
-
-  const showExpiryNotice = expireTimestamp > 0 && daysRemaining <= EXPIRY_WARNING_DAYS
-  const renewAction =
-    currentProfile?.homeName && currentProfile?.home
-      ? { url: currentProfile.home, label: currentProfile.homeName }
-      : currentProfile?.supportUrl
-        ? { url: currentProfile.supportUrl, label: t('pages.home.renewSubscription') }
-        : null
-  const expiryTitle = isExpired
-    ? t('pages.home.subscriptionExpired')
-    : daysRemaining === 0
-      ? t('pages.home.subscriptionExpiringToday')
-      : t('pages.home.subscriptionExpiring', { count: daysRemaining })
-
-  const firstGroup = groups?.[0]
-  const supportUrl = currentProfile?.supportUrl
-  const supportLinkInfo = useMemo(() => {
-    if (!supportUrl) return null
-    try {
-      const parsed = new URL(supportUrl)
-      const normalized = `${parsed.hostname}${parsed.pathname}`.toLowerCase()
-      return {
-        href: parsed.toString(),
-        isTelegram:
-          parsed.protocol === 'tg:' ||
-          normalized.includes('t.me') ||
-          normalized.includes('telegram')
-      }
-    } catch {
-      return null
-    }
-  }, [supportUrl])
-
-  const onValueChange = async (enable: boolean): Promise<void> => {
-    setLoading(true)
-    setLoadingDirection(enable ? 'connecting' : 'disconnecting')
-    try {
-      if (enable) {
-        if (mainSwitchMode === 'tun') {
-          await patchControledMihomoConfig({ tun: { enable: true }, dns: { enable: true } })
-          await mihomoHotReloadConfig()
-        } else {
-          if (writeSysProxy && mode == 'manual' && sysProxyDisabled) return
-          await patchAppConfig({ proxyMode: true })
-          await mihomoHotReloadConfig()
-          if (writeSysProxy) {
-            await triggerSysProxy(true, onlyActiveDevice)
-          }
-        }
-      } else {
-        const tunWasEnabled = tun?.enable ?? false
-        const proxyModeWasEnabled = proxyMode
-        if (tunWasEnabled) {
-          await patchControledMihomoConfig({ tun: { enable: false } })
-        }
-        if (proxyModeWasEnabled) {
-          if (writeSysProxy) {
-            await triggerSysProxy(false, onlyActiveDevice)
-          }
-          await patchAppConfig({ proxyMode: false })
-        }
-        if (tunWasEnabled || proxyModeWasEnabled) {
-          await mihomoHotReloadConfig()
-        }
-      }
-      window.electron.ipcRenderer.send('updateFloatingWindow')
-      window.electron.ipcRenderer.send('updateTrayMenu')
-      await updateTrayIcon()
-    } catch (e) {
-      toast.error(`${e}`)
-    } finally {
-      setLoading(false)
-    }
-  }
-
   return (
-    <BasePage>
-      {!hasProfiles ? (
-        <div className="h-full w-full flex items-center justify-center">
-          <div className="flex flex-col items-center gap-4 max-w-75 rounded-2xl border border-stroke bg-card/50 backdrop-blur-xl p-8">
-            <WifiOff className="size-16 text-muted-foreground" />
-            <h2 className="text-xl font-bold text-foreground">{t('pages.profiles.emptyTitle')}</h2>
-            <p className="text-sm font-medium text-muted-foreground text-center">
-              {t('pages.profiles.emptyDescription')}
-            </p>
-            <button
-              onClick={handleAddProfile}
-              data-guide="home-add-profile-btn"
-              className="flex items-center gap-2 rounded-xl border border-stroke bg-gradient-start-power-on/50 backdrop-blur-xl px-6 py-3 text-foreground hover:bg-gradient-start-power-on/40 transition-colors"
-            >
-              <PlusCircle className="size-5" />
-              <span className="text-sm font-medium">{t('pages.profiles.addProfile')}</span>
-            </button>
-          </div>
-          {showEditModal && editingItem && (
-            <EditInfoModal
-              item={editingItem}
-              isCurrent={false}
-              updateProfileItem={async (item: ProfileItem) => {
-                await addProfileItem(item)
-                setShowEditModal(false)
-                setEditingItem(null)
-              }}
-              onClose={() => {
-                setShowEditModal(false)
-                setEditingItem(null)
-              }}
-            />
-          )}
+    <BasePage title={t('sider.home')} contentClassName="ui-page">
+      {!profileConfig ? (
+        <div role="status" className="ui-panel flex items-center gap-2">
+          <Spinner />
+          {t('redesign.loading')}
+        </div>
+      ) : !hasProfiles ? (
+        <div className="ui-panel flex min-h-80 flex-col items-center justify-center gap-4 text-center">
+          <WifiOff className="size-10 text-muted-foreground" />
+          <h2 className="text-xl font-semibold">{t('pages.profiles.emptyTitle')}</h2>
+          <p className="ui-description">{t('pages.profiles.emptyDescription')}</p>
+          <Button onClick={newProfile} data-guide="home-add-profile-btn">
+            <Plus />
+            {t('pages.profiles.addProfile')}
+          </Button>
         </div>
       ) : (
-        <div className="flex flex-col h-full px-2 pb-2 gap-3">
-          {/* Profile card */}
-          {currentProfile && (
-            <div className="rounded-2xl border border-stroke bg-card/50 backdrop-blur-xl p-4">
-              <div
-                data-guide="home-profile-header"
-                className="flex items-center justify-center gap-3"
-              >
-                {currentProfile.logo && (
-                  <img
-                    src={currentProfile.logo}
-                    alt=""
-                    className="w-10 h-10 rounded-full"
-                    onError={(e) => {
-                      ;(e.target as HTMLImageElement).style.display = 'none'
-                    }}
-                  />
-                )}
-                <span className="font-medium text-base">{currentProfile.name}</span>
-                {currentProfile.type === 'remote' && (
-                  <button
-                    onClick={handleUpdateProfile}
-                    disabled={updating}
-                    className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-50 cursor-pointer"
-                  >
-                    <RefreshCcw className={`size-4 ${updating ? 'animate-spin' : ''}`} />
-                  </button>
-                )}
-              </div>
-              {currentProfile.announce && (
-                <div
-                  data-guide="home-profile-announce"
-                  className="text-sm font-medium text-center mt-2 whitespace-pre-line"
-                >
-                  {currentProfile.announce}
-                </div>
-              )}
+        <div className="mx-auto max-w-5xl space-y-4">
+          {(control.error || control.runtimeError) && (
+            <div
+              role="alert"
+              className="ui-panel flex flex-wrap items-center gap-3 border-destructive"
+            >
+              <p className="min-w-0 flex-1 break-words text-sm">
+                {control.error || t('redesign.coreUnavailableHint')}
+              </p>
+              <Button variant="outline" onClick={() => void control.refresh()}>
+                {t('redesign.refreshStatus')}
+              </Button>
+              <Button variant="ghost" onClick={() => navigate('/mihomo')}>
+                {t('sider.coreSettings')}
+              </Button>
             </div>
           )}
-          {/* Subscription expiry notice — replaces the stats block near the end of the period */}
-          {subscription && showExpiryNotice ? (
-            <div
-              role="status"
-              className="rounded-2xl border border-stroke bg-card/50 backdrop-blur-xl p-4"
-            >
-              <div className="flex flex-col items-center text-center">
-                <div className="flex items-center justify-center gap-2.5">
-                  <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-destructive/15 text-destructive">
-                    <CalendarClock className="size-5" aria-hidden />
-                  </div>
-                  <p className="text-base font-semibold leading-snug text-destructive">
-                    {expiryTitle}
-                  </p>
-                </div>
-                <p className="mt-2 text-xs text-muted-foreground text-balance">
-                  {isExpired
-                    ? t('pages.home.subscriptionExpiredHint')
-                    : t('pages.home.subscriptionExpiringHint', { date: expireDate })}
+          <div className="grid gap-4 min-[1000px]:grid-cols-2">
+            <section className="ui-panel flex flex-col gap-4" aria-label={t('redesign.proxyMode')}>
+              <ProxyModeTabs />
+              <div className="flex flex-1 flex-col items-center justify-center gap-4 py-3">
+                <p role="status" className="text-sm font-medium">
+                  {status}
                 </p>
-              </div>
-              {renewAction && (
                 <button
                   type="button"
-                  onClick={() => open(renewAction.url)}
-                  className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-stroke-power-on bg-gradient-start-power-on/50 px-4 text-sm font-semibold text-foreground transition-colors hover:bg-gradient-start-power-on/40 active:scale-[0.99] cursor-pointer"
+                  data-guide="home-power-toggle"
+                  aria-label={t(control.enabled ? 'redesign.disableProxy' : 'redesign.enableProxy')}
+                  aria-pressed={control.enabled}
+                  aria-busy={control.busy}
+                  disabled={
+                    control.busy ||
+                    !control.ready ||
+                    (!control.enabled && (control.portDisabled || !current))
+                  }
+                  onClick={() => void control.apply(control.mode, !control.enabled)}
+                  className={`flex size-20 items-center justify-center rounded-full border transition-colors disabled:opacity-50 ${control.enabled ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-accent'}`}
                 >
-                  <CreditCard className="size-4 shrink-0" aria-hidden />
-                  <span className="truncate">{renewAction.label}</span>
+                  {control.busy ? <Spinner className="size-7" /> : <Power className="size-7" />}
                 </button>
-              )}
-            </div>
-          ) : (
-            subscription && (
-              <div className="grid grid-cols-[1fr_auto_1fr_auto_1fr] items-center rounded-2xl border border-stroke bg-card/50 backdrop-blur-xl p-1">
-                <div className="flex flex-col items-center py-2 px-1">
-                  <span className="text-sm text-foreground">
-                    {t('pages.home.trafficRemaining')}
+                <p className="text-sm tabular-nums">
+                  <ConnectedTimer active={control.enabled} />
+                </p>
+                <p className="ui-description max-w-72 text-center">
+                  {t(control.mode === 'tun' ? 'redesign.tunHint' : 'redesign.defaultHint')}
+                </p>
+                {control.portDisabled && (
+                  <p className="text-sm text-destructive">{t('redesign.portDisabled')}</p>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-3 border-t pt-4 text-xs text-muted-foreground">
+                <div>
+                  <span className="flex items-center gap-1">
+                    <ArrowUp className="size-3" />
+                    {t('redesign.upload')}
                   </span>
-                  <span className="font-bold text-base mt-0.5">
-                    {trafficTotal > 0 ? formatBytes(trafficRemaining) : <InfinityIcon />}
+                  <p className="mt-1 font-mono text-base text-foreground">
+                    {calcTraffic(traffic.up)}/s
+                  </p>
+                  <p>
+                    {calcTraffic(traffic.upTotal)} {t('redesign.total')}
+                  </p>
+                </div>
+                <div>
+                  <span className="flex items-center gap-1">
+                    <ArrowDown className="size-3" />
+                    {t('redesign.download')}
                   </span>
-                </div>
-                <div className="h-8 w-px bg-stroke" />
-                <div className="flex flex-col items-center py-2 px-1">
-                  <span className="text-sm text-foreground">{t('pages.home.daysRemaining')}</span>
-                  <span className="text-base font-bold mt-0.5">
-                    {expireTimestamp > 0 ? daysRemaining : <InfinityIcon />}
-                  </span>
-                </div>
-                <div className="h-8 w-px bg-stroke" />
-                <div className="flex flex-col items-center py-2 px-1">
-                  <span className="text-sm text-foreground">{t('pages.home.expires')}</span>
-                  <span className="text-base font-bold mt-0.5">{expireDate}</span>
+                  <p className="mt-1 font-mono text-base text-foreground">
+                    {calcTraffic(traffic.down)}/s
+                  </p>
+                  <p>
+                    {calcTraffic(traffic.downTotal)} {t('redesign.total')}
+                  </p>
                 </div>
               </div>
-            )
-          )}
-
-          {/* Connection button */}
-          <div className="flex flex-col grow-3 items-center justify-center min-h-0">
-            <div className="mb-3 flex h-6 items-center justify-center">
-              <CharacterMorph
-                texts={[status]}
-                reserveTexts={statusWidthTexts}
-                interval={3000}
-                className="h-6 leading-none text-foreground font-semibold uppercase"
-              />
-            </div>
-            <button
-              disabled={isDisabled}
-              onClick={() => onValueChange(!isSelected)}
-              data-guide="home-power-toggle"
-              className="relative group transition-transform active:scale-95 cursor-pointer"
-            >
-              <div
-                className={`w-32 h-32 rounded-full flex items-center justify-center transition-all duration-300 bg-radial-[at_30%_45%] backdrop-blur-xl border-2 ${
-                  isSelected
-                    ? 'from-gradient-start-power-on/60 to-gradient-end-power-on/60 border-stroke-power-on'
-                    : 'from-gradient-start-power-off/50 to-gradient-end-power-off/50 border-stroke-power-off'
-                } ${loading ? 'animate-none' : ''}`}
-              >
-                <div className="relative size-16">
-                  <Spinner
-                    className={`absolute inset-0 m-auto size-16 text-[#FAFAFA] transition-all duration-300 ease-out ${
-                      loading ? 'opacity-100 scale-100' : 'opacity-0 scale-90'
-                    }`}
-                  />
-                  <img
-                    src={Pause}
-                    alt=""
-                    className={`absolute inset-0 size-16 fill-foreground transition-all duration-300 ease-out ${
-                      !loading && isSelected ? 'opacity-100 scale-100' : 'opacity-0 scale-90'
-                    }`}
-                  />
-                  <img
-                    src={Power}
-                    alt=""
-                    className={`absolute inset-0 size-16 fill-foreground transition-all duration-300 ease-out ${
-                      !loading && !isSelected ? 'opacity-100 scale-100' : 'opacity-0 scale-90'
-                    }`}
-                  />
+            </section>
+            <div className="flex flex-col gap-4">
+              <section className="ui-panel flex-1" data-guide="home-group-selector">
+                <h2 className="text-sm font-semibold">{t('redesign.currentNode')}</h2>
+                {groups && groups.length > 1 && (
+                  <select
+                    aria-label={t('sider.proxyGroup')}
+                    value={group?.name}
+                    onChange={(e) => setGroupName(e.target.value)}
+                    className="mt-3 w-full rounded-md border bg-background p-2 text-xs"
+                  >
+                    {groups.map((item) => (
+                      <option key={item.name} value={item.name}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <p className="my-4 break-words text-xl font-semibold">
+                  {control.runtimeError
+                    ? t('redesign.unknown')
+                    : group?.now || t('redesign.noNode')}
+                </p>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="ui-description">{group?.name}</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => navigate('/proxies', { state: { fromHome: true } })}
+                  >
+                    {t('redesign.chooseNode')}
+                    <ChevronRight />
+                  </Button>
                 </div>
-              </div>
-            </button>
-            <div className="mt-3 h-8 flex items-center justify-center">
-              <div
-                aria-hidden={!showConnectedTimer}
-                className={`inline-flex items-center gap-0.5 text-base font-bold text-foreground tabular-nums transition-all duration-300 ease-out ${
-                  showConnectedTimer ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-1'
-                }`}
-              >
-                <ConnectedTimer active={isSelected} />
-              </div>
-            </div>
-            <div
-              aria-hidden={!showConnectedTimer}
-              className={`mt-2 flex items-center gap-4 tabular-nums transition-all duration-300 ease-out ${
-                showConnectedTimer ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-1'
-              }`}
-            >
-              <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                <ArrowUp className="size-3.5 text-stroke-power-on" />
-                <span>{calcTraffic(trafficInfo.upTotal)}</span>
-              </div>
-              <div className="h-3 w-px bg-stroke" />
-              <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                <ArrowDown className="size-3.5 text-stroke-power-on" />
-                <span>{calcTraffic(trafficInfo.downTotal)}</span>
-              </div>
+              </section>
+              <section className="ui-panel">
+                <h2 className="mb-3 text-sm font-semibold">{t('redesign.outboundMode')}</h2>
+                <OutboundModeSwitcher />
+                <p className="ui-description mt-3">{t('redesign.outboundHint')}</p>
+              </section>
             </div>
           </div>
-
-          {/* Group & Proxy selectors */}
-          {firstGroup && (
-            <div className="flag-emoji flex flex-col items-center mx-auto w-full max-w-3xs max-h-16">
-              <div
-                data-guide="home-group-selector"
-                className="w-full cursor-pointer"
-                onClick={() => navigate('/proxies', { state: { fromHome: true } })}
-              >
-                <div className="flex items-center justify-between h-9 rounded-2xl border border-stroke pl-3 pr-1 py-3 backdrop-blur-xl bg-card/50 transition-colors hover:bg-card/70">
-                  <div className="flag-emoji text-sm truncate max-w-52">
-                    {firstGroup.now || firstGroup.name}
-                  </div>
+          <section className="ui-panel">
+            <div
+              className="flex flex-wrap items-center justify-between gap-3"
+              data-guide="home-profile-header"
+            >
+              <div className="min-w-0">
+                <h2 className="text-xs text-muted-foreground">{t('redesign.currentProfile')}</h2>
+                <p className="mt-1 break-words font-semibold">
+                  {current?.name || t('pages.home.noProfile')}
+                </p>
+              </div>
+              <div className="ui-toolbar">
+                {current?.type === 'remote' && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={updating}
+                    onClick={() => void update()}
+                  >
+                    <RefreshCcw className={updating ? 'animate-spin' : ''} />
+                    {t('redesign.updateSubscription')}
+                  </Button>
+                )}
+                <Button size="sm" variant="ghost" onClick={() => navigate('/profiles')}>
+                  {t('sider.profileManagement')}
                   <ChevronRight />
-                </div>
+                </Button>
               </div>
             </div>
-          )}
-          {supportLinkInfo && (
-            <div className="flex justify-center text-sm text-muted-foreground">
-              <button
-                data-guide="home-support-link"
-                type="button"
-                onClick={() => open(supportLinkInfo.href)}
-                className="inline-flex items-center gap-1.5 hover:text-foreground transition-colors cursor-pointer"
+            {quotaKnown && (
+              <div
+                role="progressbar"
+                aria-label={t('redesign.usedTraffic')}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.min(100, Math.round((used / total) * 100))}
+                className="my-4 h-1.5 overflow-hidden rounded-full bg-muted"
               >
-                {supportLinkInfo.isTelegram ? (
-                  <SiTelegram className="size-4" />
-                ) : (
-                  <Globe className="size-4" />
-                )}
-                <span>{t('pages.profiles.support')}</span>
-              </button>
+                <div
+                  className="h-full bg-primary"
+                  style={{ width: `${Math.min(100, Math.max(0, (used / total) * 100))}%` }}
+                />
+              </div>
+            )}
+            <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-xs text-muted-foreground">
+              <span>
+                {t('redesign.usedTraffic')}:{' '}
+                {usageKnown ? calcTraffic(used) : t('redesign.notProvided')}
+              </span>
+              <span>
+                {t('pages.home.trafficRemaining')}{' '}
+                {quotaKnown ? calcTraffic(Math.max(0, total - used)) : t('redesign.notProvided')}
+              </span>
+              <span>
+                {t('pages.home.expires')}{' '}
+                {expires && expires > 0
+                  ? dayjs.unix(expires).format('L')
+                  : t('redesign.notProvided')}
+              </span>
             </div>
-          )}
+            {days !== undefined && days <= 3 && (
+              <div
+                role="status"
+                className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-destructive/40 p-3 text-sm text-destructive"
+              >
+                <span className="flex-1">
+                  {expired
+                    ? t('pages.home.subscriptionExpired')
+                    : t('pages.home.subscriptionExpiring', { count: days })}
+                </span>
+                {renewal && (
+                  <Button size="sm" variant="outline" onClick={() => open(renewal)}>
+                    {t('pages.home.renewSubscription')}
+                  </Button>
+                )}
+              </div>
+            )}
+            {current?.announce && (
+              <p
+                data-guide="home-profile-announce"
+                className="mt-4 whitespace-pre-line break-words border-t pt-4 text-sm"
+              >
+                {current.announce}
+              </p>
+            )}
+            {current?.supportUrl && (
+              <Button
+                data-guide="home-support-link"
+                className="mt-3"
+                variant="link"
+                size="sm"
+                onClick={() => open(current.supportUrl)}
+              >
+                {t('pages.profiles.support')}
+                <ExternalLink />
+              </Button>
+            )}
+          </section>
+          <p className="ui-description">{t('redesign.connectivityHint')}</p>
         </div>
+      )}
+      {editing && (
+        <EditInfoModal
+          item={editing}
+          isCurrent={false}
+          onClose={() => setEditing(null)}
+          updateProfileItem={async (item) => {
+            await addProfileItem(item)
+            mutateProfileConfig()
+            setEditing(null)
+          }}
+        />
       )}
     </BasePage>
   )
 }
-
 export default Home

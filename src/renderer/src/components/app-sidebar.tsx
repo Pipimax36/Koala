@@ -23,60 +23,64 @@ import {
   SidebarMenuItem,
   useSidebar
 } from '@renderer/components/ui/sidebar'
-import OutboundModeSwitcher from '@renderer/components/sider/outbound-mode-switcher'
-import { useProfileConfig } from '@renderer/hooks/use-profile-config'
+import { Cpu } from 'lucide-react'
 import ConfigViewer from '@renderer/components/sider/config-viewer'
 
 const navItems = [
   { key: 'main', path: '/home', icon: HomeIcon, i18nKey: 'sider.home' },
-  { key: 'profile', path: '/profiles', icon: ProfileIcon, i18nKey: 'sider.profileManagement' },
   { key: 'proxy', path: '/proxies', icon: ProxiesIcon, i18nKey: 'sider.proxyGroup' },
+  { key: 'profile', path: '/profiles', icon: ProfileIcon, i18nKey: 'sider.profileManagement' },
   { key: 'connection', path: '/connections', icon: ConnectionsIcon, i18nKey: 'sider.connection' },
   { key: 'rule', path: '/rules', icon: RulesIcon, i18nKey: 'sider.rules' },
   { key: 'log', path: '/logs', icon: LogsIcon, i18nKey: 'sider.logs' },
+  { key: 'core', path: '/mihomo', icon: Cpu, i18nKey: 'sider.coreSettings' },
   { key: 'settings', path: '/settings', icon: SettingsIcon, i18nKey: 'common.settings' }
 ]
-
-const allowedWithoutProfiles = new Set(['main', 'profile', 'settings'])
 
 const AppSidebar: React.FC = () => {
   const { t } = useTranslation()
   const location = useLocation()
   const navigate = useNavigate()
-  const { toggleSidebar, state } = useSidebar()
+  const { toggleSidebar, state, isMobile, setOpenMobile } = useSidebar()
   const collapsed = state === 'collapsed'
   const [showRuntimeConfig, setShowRuntimeConfig] = useState(false)
-  const { profileConfig } = useProfileConfig()
-  const hasProfiles = (profileConfig?.items?.length ?? 0) > 0
-  const currentProfile = profileConfig?.items?.find((i) => i.id === profileConfig.current)
-  const globalModeAllowed = currentProfile?.globalMode !== false
-  const filteredNavItems = hasProfiles
-    ? navItems
-    : navItems.filter((item) => allowedWithoutProfiles.has(item.key))
-
   return (
     <Sidebar
       data-guide="app-sidebar"
       collapsible="icon"
       side="left"
-      variant="floating"
-      className="pt-14.25"
+      variant="sidebar"
+      className="pt-14.25 bg-sidebar"
     >
+      <div className="flex h-12 shrink-0 items-center gap-2 overflow-hidden px-3">
+        <span
+          aria-hidden
+          className="flex size-6 shrink-0 items-center justify-center rounded-lg bg-primary text-xs font-bold text-primary-foreground"
+        >
+          K
+        </span>
+        {!collapsed && <span className="truncate text-sm font-semibold">Koala Clash</span>}
+      </div>
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {filteredNavItems.map((item) => {
+              {navItems.map((item) => {
                 const Icon = item.icon
                 const isActive = location.pathname.includes(item.path)
                 return (
                   <SidebarMenuItem key={item.key}>
                     <SidebarMenuButton
-                      className="cursor-pointer"
+                      className="h-10 cursor-pointer"
+                      aria-label={t(item.i18nKey)}
+                      aria-current={isActive ? 'page' : undefined}
                       tooltip={t(item.i18nKey)}
                       isActive={isActive}
                       data-guide={item.key === 'main' ? 'sidebar-home-button' : undefined}
-                      onClick={() => navigate(item.path)}
+                      onClick={() => {
+                        navigate(item.path)
+                        if (isMobile) setOpenMobile(false)
+                      }}
                       onDoubleClick={
                         item.key === 'profile' ? () => setShowRuntimeConfig(true) : undefined
                       }
@@ -93,10 +97,13 @@ const AppSidebar: React.FC = () => {
       </SidebarContent>
       <SidebarFooter>
         <div className="flex flex-col items-center gap-2">
-          {hasProfiles && globalModeAllowed && <OutboundModeSwitcher />}
           <SidebarMenu>
             <SidebarMenuItem>
-              <SidebarMenuButton tooltip={t('common.toggleSidebar')} onClick={toggleSidebar} className="cursor-pointer">
+              <SidebarMenuButton
+                tooltip={t('common.toggleSidebar')}
+                onClick={toggleSidebar}
+                className="cursor-pointer"
+              >
                 {collapsed ? (
                   <ExpandedIcon className="size-4 shrink-0" />
                 ) : (

@@ -56,7 +56,7 @@
 .dark {
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
-  --card: oklch(0.419 0.0614 255.88);
+  --card: oklch(0.205 0.008 255);
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
@@ -77,7 +77,7 @@
   --profile-inactive: oklch(0.419 0.0614 255.88 / 50.2%);
   --stroke-profile-inactive: oklch(0.4903 0.0593 255.8);
   --stroke: oklch(0.4903 0.0593 255.8);
-  --accent: oklch(0.4289 0.0562 254.61);
+  --accent: oklch(0.269 0.008 255);
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
   --destructive-foreground: oklch(0.985 0 0);
@@ -258,12 +258,11 @@
   margin-left: 0 !important;
   color: var(--foreground) !important;
   border-color: var(--stroke-power-on) !important;
-  background:
-    linear-gradient(
-      135deg,
-      color-mix(in oklab, var(--gradient-start-power-on) 56%, transparent),
-      color-mix(in oklab, var(--gradient-end-power-on) 56%, transparent)
-    ) !important;
+  background: linear-gradient(
+    135deg,
+    color-mix(in oklab, var(--gradient-start-power-on) 56%, transparent),
+    color-mix(in oklab, var(--gradient-end-power-on) 56%, transparent)
+  ) !important;
 }
 
 .driver-popover-next-btn:hover,
@@ -562,4 +561,39 @@
   pointer-events: none;
   z-index: -1;
   animation: sticky-header-settle 250ms ease-out forwards;
+}
+
+/* Shared desktop surfaces. Custom themes may still override the color tokens. */
+.ui-panel {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  padding: 20px;
+}
+.ui-page {
+  padding: 20px;
+}
+.ui-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ui-description {
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
+button:focus-visible,
+a:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+@media (max-width: 767px) {
+  .ui-page {
+    padding: 12px;
+  }
+  .ui-panel {
+    padding: 16px;
+  }
 }

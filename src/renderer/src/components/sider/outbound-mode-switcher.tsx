@@ -1,99 +1,87 @@
-import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip'
-import { useSidebar } from '@renderer/components/ui/sidebar'
-import { useAppConfig } from '@renderer/hooks/use-app-config'
-import { useControledMihomoConfig } from '@renderer/hooks/use-controled-mihomo-config'
-import { useGroups } from '@renderer/hooks/use-groups'
-import { mihomoCloseAllConnections, patchMihomoConfig } from '@renderer/utils/ipc'
-import { cn } from '@renderer/lib/utils'
-import { Globe, Route } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
+import useSWR, { mutate } from 'swr'
+import { useAppConfig } from '@renderer/hooks/use-app-config'
+import { useProfileConfig } from '@renderer/hooks/use-profile-config'
+import {
+  mihomoConfig,
+  patchControledMihomoConfig,
+  patchMihomoConfig,
+  mihomoCloseAllConnections
+} from '@renderer/utils/ipc'
+import { cn } from '@renderer/lib/utils'
 
-const SIDEBAR_ANIMATION_MS = 200
-
-const OutboundModeSwitcher: React.FC = () => {
+export default function OutboundModeSwitcher() {
   const { t } = useTranslation()
-  const { state, isMobile } = useSidebar()
-  const collapsed = state === 'collapsed'
-  const { controledMihomoConfig, patchControledMihomoConfig } = useControledMihomoConfig()
-  const { mutate: mutateGroups } = useGroups()
   const { appConfig } = useAppConfig()
-  const { autoCloseConnection = true } = appConfig || {}
-  const { mode } = controledMihomoConfig || {}
-
-  // Sync layout switch with sidebar animation:
-  // - Collapsing: switch to icon-only immediately (shrink before sidebar narrows)
-  // - Expanding: wait for sidebar to finish widening, then switch
-  const [iconOnly, setIconOnly] = useState(collapsed)
-  const [fading, setFading] = useState(false)
-
-  useEffect(() => {
-    if (collapsed) {
-      setFading(true)
-      const timer = setTimeout(() => {
-        setIconOnly(true)
-        setFading(false)
-      }, 50)
-      return () => clearTimeout(timer)
-    } else {
-      setFading(true)
-      const timer = setTimeout(() => {
-        setIconOnly(false)
-        setFading(false)
-      }, SIDEBAR_ANIMATION_MS)
-      return () => clearTimeout(timer)
+  const { profileConfig } = useProfileConfig()
+  const currentProfile = profileConfig?.items?.find((item) => item.id === profileConfig.current)
+  const { data: runtime, error, mutate: refresh } = useSWR('mihomoConfig', mihomoConfig)
+  const [busy, setBusy] = useState(false)
+  const lock = useRef(false)
+  async function change(mode: OutboundMode): Promise<void> {
+    if (lock.current || !runtime || mode === runtime.mode) return
+    lock.current = true
+    setBusy(true)
+    const previous = runtime.mode
+    try {
+      await patchMihomoConfig({ mode })
+      try {
+        await patchControledMihomoConfig({ mode })
+      } catch (cause) {
+        const recovery = await Promise.allSettled([
+          patchControledMihomoConfig({ mode: previous }),
+          patchMihomoConfig({ mode: previous })
+        ])
+        if (recovery.some((result) => result.status === 'rejected')) {
+          throw new AggregateError([cause], t('redesign.recoveryFailed'))
+        }
+        throw cause
+      }
+      if (appConfig?.autoCloseConnection !== false) await mihomoCloseAllConnections()
+    } catch (cause) {
+      toast.error(`${t('redesign.operationFailed')}: ${cause}`)
+    } finally {
+      await Promise.allSettled([
+        refresh(),
+        mutate('getControledMihomoConfig'),
+        mutate('mihomoGroups')
+      ])
+      window.electron.ipcRenderer.send('updateTrayMenu')
+      lock.current = false
+      setBusy(false)
     }
-  }, [collapsed])
-
-  const onChangeMode = async (mode: OutboundMode): Promise<void> => {
-    await patchControledMihomoConfig({ mode })
-    await patchMihomoConfig({ mode })
-    if (autoCloseConnection) {
-      await mihomoCloseAllConnections()
-    }
-    mutateGroups()
-    window.electron.ipcRenderer.send('updateTrayMenu')
   }
-
-  if (!mode) return null
-
-  const modes = [
-    { value: 'rule' as const, icon: Route, label: t('sider.rules') },
-    { value: 'global' as const, icon: Globe, label: t('common.global') }
-  ]
-
   return (
     <div
-      className={cn(
-        'flex items-center rounded-lg border border-stroke bg-card/50 backdrop-blur-xl p-0.75 transition-opacity duration-150',
-        iconOnly ? 'flex-col gap-1' : 'w-full gap-1',
-        fading ? 'opacity-0' : 'opacity-100'
-      )}
+      role="group"
+      aria-label={t('redesign.outboundMode')}
+      aria-busy={busy}
+      className="flex gap-1 rounded-lg bg-muted p-1"
     >
-      {modes.map(({ value, icon: Icon, label }) => (
-        <Tooltip key={value}>
-          <TooltipTrigger asChild>
-            <button
-              onClick={() => onChangeMode(value)}
-              className={cn(
-                'flex items-center justify-center rounded-md font-medium transition-colors',
-                iconOnly ? 'size-8' : 'h-7 flex-1 gap-1.5 px-2 text-xs',
-                mode === value
-                  ? 'bg-gradient-to-br from-gradient-start-power-on/15 to-gradient-end-power-on/15 border border-stroke-power-on/50 text-foreground shadow-sm'
-                  : 'border border-transparent text-muted-foreground hover:text-foreground'
-              )}
-            >
-              <Icon className={cn('shrink-0', iconOnly ? 'size-4' : 'size-3.5')} />
-              {!iconOnly && <span>{label}</span>}
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="right" hidden={!iconOnly || isMobile}>
-            {label}
-          </TooltipContent>
-        </Tooltip>
+      {(['rule', 'global', 'direct'] as const).map((mode) => (
+        <button
+          key={mode}
+          type="button"
+          aria-pressed={!error && runtime?.mode === mode}
+          disabled={
+            busy ||
+            !runtime ||
+            Boolean(error) ||
+            (mode === 'global' && currentProfile?.globalMode === false)
+          }
+          onClick={() => void change(mode)}
+          className={cn(
+            'flex-1 rounded-md px-2 py-2 text-xs font-medium disabled:opacity-50',
+            runtime?.mode === mode && !error
+              ? 'bg-background shadow-sm'
+              : 'text-muted-foreground hover:bg-background/50'
+          )}
+        >
+          {t(`redesign.${mode}`)}
+        </button>
       ))}
     </div>
   )
 }
-
-export default OutboundModeSwitcher

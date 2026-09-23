@@ -4,7 +4,7 @@ import SettingCard from '../base/base-setting-card'
 import SettingItem from '../base/base-setting-item'
 import { Button } from '@renderer/components/ui/button'
 import { Switch } from '@renderer/components/ui/switch'
-import { Tabs, TabsList, TabsTrigger } from '@renderer/components/ui/tabs'
+import ProxyModeTabs from '@renderer/components/home/proxy-mode-tabs'
 import { useControledMihomoConfig } from '@renderer/hooks/use-controled-mihomo-config'
 import { useAppConfig } from '@renderer/hooks/use-app-config'
 import { triggerSysProxy, updateTrayIcon, mihomoHotReloadConfig } from '@renderer/utils/ipc'
@@ -18,12 +18,7 @@ const ProxySwitches: React.FC = () => {
   const { controledMihomoConfig, patchControledMihomoConfig } = useControledMihomoConfig()
   const { tun } = controledMihomoConfig || {}
   const { appConfig, patchAppConfig } = useAppConfig()
-  const {
-    sysProxy,
-    proxyMode = false,
-    onlyActiveDevice = false,
-    mainSwitchMode = 'tun'
-  } = appConfig || {}
+  const { sysProxy, proxyMode = false, onlyActiveDevice = false } = appConfig || {}
   const { enable: writeSysProxy = true, mode } = sysProxy || {}
   const { 'mixed-port': mixedPort } = controledMihomoConfig || {}
   const sysProxyDisabled = mixedPort == 0
@@ -31,26 +26,12 @@ const ProxySwitches: React.FC = () => {
   return (
     <SettingCard>
       <SettingItem title={t('settings.advanced.mainSwitch')} divider>
-        <Tabs
-          value={mainSwitchMode}
-          onValueChange={(value) => {
-            patchAppConfig({ mainSwitchMode: value as 'tun' | 'sysproxy' })
-          }}
-        >
-          <TabsList>
-            <TabsTrigger value="tun">{t('settings.advanced.mainSwitchTun')}</TabsTrigger>
-            <TabsTrigger value="sysproxy">{t('settings.advanced.mainSwitchProxyMode')}</TabsTrigger>
-          </TabsList>
-        </Tabs>
+        <ProxyModeTabs />
       </SettingItem>
       <SettingItem
         title={t('sider.virtualInterface')}
         actions={
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            onClick={() => navigate('/tun')}
-          >
+          <Button size="icon-sm" variant="ghost" onClick={() => navigate('/tun')}>
             <Settings className="text-lg" />
           </Button>
         }
@@ -73,11 +54,7 @@ const ProxySwitches: React.FC = () => {
       <SettingItem
         title={t('sider.proxyMode')}
         actions={
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            onClick={() => navigate('/sysproxy')}
-          >
+          <Button size="icon-sm" variant="ghost" onClick={() => navigate('/sysproxy')}>
             <Settings className="text-lg" />
           </Button>
         }
