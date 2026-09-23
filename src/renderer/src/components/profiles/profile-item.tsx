@@ -1,46 +1,23 @@
+import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import { toast } from 'sonner'
+import dayjs from 'dayjs'
+import { GripVertical, RefreshCcw, MoreHorizontal, Check } from 'lucide-react'
 import { Button } from '@renderer/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@renderer/components/ui/dropdown-menu'
-import { cn } from '@renderer/lib/utils'
-import { useTranslation } from 'react-i18next'
+import ConfirmModal from '@renderer/components/base/base-confirm'
 import { calcTraffic } from '@renderer/utils/calc'
-import dayjs from 'dayjs'
-import React, { useEffect, useMemo, useState } from 'react'
+import { openFile } from '@renderer/utils/ipc'
 import EditFileModal from './edit-file-modal'
 import EditRulesModal from './edit-rules-modal'
 import EditInfoModal from './edit-info-modal'
-import { useSortable } from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
-import { openFile } from '@renderer/utils/ipc'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogMedia,
-  AlertDialogTitle
-} from '@renderer/components/ui/alert-dialog'
-import {
-  Clock,
-  EllipsisVertical,
-  ExternalLink,
-  FileText,
-  FolderOpen,
-  HeadsetIcon,
-  InfinityIcon,
-  ListTree,
-  Pencil,
-  RefreshCcw,
-  Trash2
-} from 'lucide-react'
 
 interface Props {
   info: ProfileItem
@@ -50,364 +27,203 @@ interface Props {
   removeProfileItem: (id: string) => Promise<void>
   onClick: () => Promise<void>
   switching: boolean
+  sortingDisabled?: boolean
 }
 
-interface MenuItem {
-  key: string
-  label: string
-  icon: React.ReactNode
-  showDivider: boolean
-  variant: 'default' | 'destructive'
-}
-
-const ProfileItem: React.FC<Props> = (props) => {
+export default function ProfileItem({
+  info,
+  isCurrent,
+  addProfileItem,
+  updateProfileItem,
+  removeProfileItem,
+  onClick,
+  switching,
+  sortingDisabled
+}: Props) {
   const { t } = useTranslation()
-  const {
-    info,
-    addProfileItem,
-    removeProfileItem,
-    updateProfileItem,
-    onClick,
-    isCurrent,
-    switching
-  } = props
-  const extra = info?.extra
-  const usage = (extra?.upload ?? 0) + (extra?.download ?? 0)
-  const total = extra?.total ?? 0
-  const [updating, setUpdating] = useState(false)
-  const [selecting, setSelecting] = useState(false)
-  const [openInfoEditor, setOpenInfoEditor] = useState(false)
-  const [openFileEditor, setOpenFileEditor] = useState(false)
-  const [openRulesEditor, setOpenRulesEditor] = useState(false)
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform: tf,
-    transition,
-    isDragging
-  } = useSortable({
-    id: info.id
+  const [busy, setBusy] = useState(false)
+  const [dialog, setDialog] = useState<'info' | 'file' | 'rules' | 'delete' | null>(null)
+  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
+    id: info.id,
+    disabled: sortingDisabled || busy || switching
   })
-  const transform = tf ? { x: tf.x, y: tf.y, scaleX: 1, scaleY: 1 } : null
-  const [disableSelect, setDisableSelect] = useState(false)
-  const [confirmOpen, setConfirmOpen] = useState(false)
-  const updatedFromNow = dayjs(info.updated).fromNow()
-
-  const hasLimit = total > 0
-  const expired = extra?.expire ? dayjs.unix(extra.expire).isBefore(dayjs()) : false
-
-  const trafficRemaining = useMemo(() => {
-    if (info.type !== 'remote' || !extra) return null
-    if (!hasLimit) return null
-    const remaining = Math.max(0, total - usage)
-    return calcTraffic(remaining)
-  }, [info.type, extra, hasLimit, total, usage])
-
-  const daysRemaining = useMemo(() => {
-    if (info.type !== 'remote' || !extra) return null
-    if (!extra.expire) return null
-    if (expired) return '0'
-    const days = dayjs.unix(extra.expire).diff(dayjs(), 'day')
-    return days.toString()
-  }, [info.type, extra, expired])
-
-  const intervalLabel = useMemo(() => {
-    if (!info.interval || info.interval <= 0) return null
-    const hours = Math.floor(info.interval / 60)
-    if (hours >= 24) {
-      const days = Math.floor(hours / 24)
-      return `${days}${t('profile.dayShort')}`
-    }
-    if (hours > 0) return `${hours}${t('profile.hourShort')}`
-    return `${info.interval}${t('profile.minuteShort')}`
-  }, [info.interval, t])
-
-  const menuItems: MenuItem[] = useMemo(() => {
-    const list: MenuItem[] = []
-    if (info.home) {
-      list.push({
-        key: 'home',
-        label: t('profile.homepage'),
-        icon: <ExternalLink />,
-        showDivider: false,
-        variant: 'default'
-      })
-    }
-    if (info.supportUrl) {
-      list.push({
-        key: 'support',
-        label: t('profile.support'),
-        icon: <HeadsetIcon />,
-        showDivider: false,
-        variant: 'default'
-      })
-    }
-    list.push(
-      {
-        key: 'edit-info',
-        label: t('profile.editInfo'),
-        icon: <Pencil />,
-        showDivider: false,
-        variant: 'default'
-      },
-      {
-        key: 'edit-file',
-        label: t('profile.editFile'),
-        icon: <FileText />,
-        showDivider: false,
-        variant: 'default'
-      },
-      {
-        key: 'edit-rules',
-        label: t('profile.editRule'),
-        icon: <ListTree />,
-        showDivider: false,
-        variant: 'default'
-      },
-      {
-        key: 'open-file',
-        label: t('profile.openFile'),
-        icon: <FolderOpen />,
-        showDivider: true,
-        variant: 'default'
-      },
-      {
-        key: 'delete',
-        label: t('profile.delete'),
-        icon: <Trash2 />,
-        showDivider: false,
-        variant: 'destructive'
-      }
-    )
-    return list
-  }, [info, t])
-
-  const onMenuAction = async (key: string): Promise<void> => {
-    switch (key) {
-      case 'update': {
-        setUpdating(true)
-        try {
-          await addProfileItem(info)
-        } finally {
-          setUpdating(false)
-        }
-        break
-      }
-      case 'edit-info': {
-        setOpenInfoEditor(true)
-        break
-      }
-      case 'edit-file': {
-        setOpenFileEditor(true)
-        break
-      }
-      case 'edit-rules': {
-        setOpenRulesEditor(true)
-        break
-      }
-      case 'open-file': {
-        openFile(info.id)
-        break
-      }
-      case 'delete': {
-        setConfirmOpen(true)
-        break
-      }
-      case 'home': {
-        open(info.home)
-        break
-      }
-      case 'support': {
-        open(info.supportUrl)
-        break
-      }
+  const extra = info.extra
+  const hasUsage =
+    extra?.upload !== undefined &&
+    extra?.download !== undefined &&
+    extra?.total !== undefined &&
+    extra.total > 0
+  const used = (extra?.upload ?? 0) + (extra?.download ?? 0)
+  const expired = Boolean(extra?.expire && extra.expire * 1000 < Date.now())
+  async function run(action: () => Promise<void>): Promise<void> {
+    if (busy || switching) return
+    setBusy(true)
+    try {
+      await action()
+    } catch (error) {
+      toast.error(String(error))
+    } finally {
+      setBusy(false)
     }
   }
-
-  useEffect(() => {
-    if (isDragging) {
-      setTimeout(() => setDisableSelect(true), 100)
-    } else {
-      setTimeout(() => setDisableSelect(false), 100)
-    }
-  }, [isDragging])
-
-  const handleSelect = (): void => {
-    if (disableSelect || switching) return
-    setSelecting(true)
-    onClick().finally(() => setSelecting(false))
-  }
-
   return (
-    <div
-      className="relative col-span-1"
-      style={{
-        transform: CSS.Transform.toString(transform),
-        transition,
-        zIndex: isDragging ? 'calc(infinity)' : undefined
-      }}
+    <article
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={`ui-panel ${isCurrent ? 'border-primary/50' : ''}`}
+      aria-busy={busy}
     >
-      {openFileEditor && <EditFileModal id={info.id} onClose={() => setOpenFileEditor(false)} />}
-      {openRulesEditor && <EditRulesModal id={info.id} onClose={() => setOpenRulesEditor(false)} />}
-      {openInfoEditor && (
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          {...attributes}
+          {...listeners}
+          disabled={sortingDisabled || busy || switching}
+          aria-label={t('redesign.reorderProfile', { name: info.name })}
+          className="cursor-grab rounded p-1 text-muted-foreground disabled:opacity-30"
+        >
+          <GripVertical className="size-4" />
+        </button>
+        {info.logo && <img src={info.logo} alt="" className="size-8 rounded-md" />}
+        <div className="min-w-0 flex-1">
+          <h2 className="break-words text-base font-semibold">{info.name}</h2>
+          <p className="ui-description mt-1">
+            {t(info.type === 'remote' ? 'common.remote' : 'common.local')}
+            {isCurrent && (
+              <span className="ml-3 inline-flex items-center gap-1 text-foreground">
+                <Check className="size-3" />
+                {t('redesign.currentProfile')}
+              </span>
+            )}
+          </p>
+        </div>
+        <div className="ui-toolbar">
+          {!isCurrent && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy || switching}
+              onClick={() => void run(onClick)}
+            >
+              {t('redesign.useProfile')}
+            </Button>
+          )}
+          <Button variant="outline" size="sm" disabled={busy} onClick={() => setDialog('info')}>
+            {t('profile.editInfo')}
+          </Button>
+          {info.type === 'remote' && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={t('redesign.updateSubscription')}
+              disabled={busy || switching}
+              onClick={() => void run(() => addProfileItem(info))}
+            >
+              <RefreshCcw className={busy ? 'animate-spin' : ''} />
+            </Button>
+          )}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                disabled={busy}
+                aria-label={t('redesign.moreActions')}
+              >
+                <MoreHorizontal />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => setDialog('file')}>
+                {t('profile.editFile')}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setDialog('rules')}>
+                {t('profile.editRule')}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => void run(() => openFile(info.id))}>
+                {t('profile.openFile')}
+              </DropdownMenuItem>
+              {info.home && (
+                <DropdownMenuItem onClick={() => open(info.home)}>
+                  {t('profile.homepage')}
+                </DropdownMenuItem>
+              )}
+              {info.supportUrl && (
+                <DropdownMenuItem onClick={() => open(info.supportUrl)}>
+                  {t('profile.support')}
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem variant="destructive" onClick={() => setDialog('delete')}>
+                {t('common.delete')}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
+      {hasUsage && (
+        <div
+          role="progressbar"
+          aria-label={t('redesign.usedTraffic')}
+          aria-valuenow={Math.min(100, Math.round((used / extra!.total) * 100))}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          className="mt-4 h-1 overflow-hidden rounded bg-muted"
+        >
+          <div
+            className="h-full bg-primary"
+            style={{ width: `${Math.min(100, Math.max(0, (used / extra!.total) * 100))}%` }}
+          />
+        </div>
+      )}
+      <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-xs text-muted-foreground">
+        <span>
+          {t('profile.trafficRemaining')}:{' '}
+          {hasUsage ? calcTraffic(Math.max(0, extra!.total - used)) : t('redesign.notProvided')}
+        </span>
+        <span className={expired ? 'text-destructive' : ''}>
+          {t('pages.home.expires')}{' '}
+          {extra?.expire ? dayjs.unix(extra.expire).format('L') : t('redesign.notProvided')}
+          {expired && ` · ${t('pages.home.subscriptionExpired')}`}
+        </span>
+        {info.updated && (
+          <span>
+            {t('profile.updatedAt')}: {dayjs(info.updated).fromNow()}
+          </span>
+        )}
+        {info.autoUpdate && info.interval && (
+          <span>
+            {t('profile.autoUpdate')}: {info.interval} {t('profile.minuteShort')}
+          </span>
+        )}
+      </div>
+      {dialog === 'info' && (
         <EditInfoModal
           item={info}
           isCurrent={isCurrent}
-          onClose={() => setOpenInfoEditor(false)}
           updateProfileItem={updateProfileItem}
+          onClose={() => setDialog(null)}
         />
       )}
-      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <AlertDialogContent size="sm">
-          <AlertDialogHeader>
-            <AlertDialogMedia>
-              <Trash2 className="size-8 text-destructive" />
-            </AlertDialogMedia>
-            <AlertDialogTitle>{t('profile.confirmDeleteProfile')}</AlertDialogTitle>
-            <AlertDialogDescription className="truncate max-w-3xs">
+      {dialog === 'file' && <EditFileModal id={info.id} onClose={() => setDialog(null)} />}
+      {dialog === 'rules' && <EditRulesModal id={info.id} onClose={() => setDialog(null)} />}
+      {dialog === 'delete' && (
+        <ConfirmModal
+          title={t('profile.confirmDeleteProfile')}
+          description={
+            <>
               {info.name}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              onClick={() => {
-                setTimeout(() => removeProfileItem(info.id), 200)
-              }}
-            >
-              {t('common.delete')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <div
-        role="button"
-        tabIndex={0}
-        aria-selected={isCurrent}
-        aria-busy={selecting || switching}
-        onClick={handleSelect}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault()
-            handleSelect()
+              {isCurrent && <p className="mt-2">{t('redesign.deleteCurrentHint')}</p>}
+            </>
           }
-        }}
-        className={cn(
-          'group relative rounded-2xl backdrop-blur-3xl border px-4 pt-3 pb-2 cursor-pointer transition-all duration-200',
-          isCurrent
-            ? 'border-stroke-profile-active bg-profile-active hover:bg-profile-active/90'
-            : 'border-stroke-profile-inactive bg-profile-inactive hover:bg-accent/60',
-          selecting && 'opacity-60 scale-[0.98]',
-          switching && 'cursor-wait'
-        )}
-      >
-        <div ref={setNodeRef} {...attributes} {...listeners} className="w-full h-full">
-          {/* Header: logo + name + menu */}
-          <div className="flex items-center gap-2">
-            {info.logo && (
-              <img
-                src={info.logo}
-                alt=""
-                className="size-7 rounded-full object-cover shrink-0"
-                onError={(e) => {
-                  ;(e.target as HTMLImageElement).style.display = 'none'
-                }}
-              />
-            )}
-            <h3 title={info.name} className="text-sm font-semibold truncate flex-1 leading-tight">
-              {info.name}
-            </h3>
-            <div
-              className="shrink-0 -mr-1 flex items-center"
-              onClick={(e) => e.stopPropagation()}
-              onPointerDown={(e) => e.stopPropagation()}
-            >
-              {info.type === 'remote' && (
-                <Button
-                  size="icon-sm"
-                  variant="ghost"
-                  onClick={() => onMenuAction('update')}
-                  disabled={updating}
-                >
-                  <RefreshCcw
-                    className={cn('text-base text-muted-foreground', updating && 'animate-spin')}
-                  />
-                </Button>
-              )}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button size="icon-sm" variant="ghost">
-                    <EllipsisVertical className="text-base text-muted-foreground" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  align="end"
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {menuItems.map((item) => (
-                    <React.Fragment key={item.key}>
-                      <DropdownMenuItem
-                        variant={item.variant}
-                        onClick={() => onMenuAction(item.key)}
-                      >
-                        {item.icon}
-                        {item.label}
-                      </DropdownMenuItem>
-                      {item.showDivider && <DropdownMenuSeparator />}
-                    </React.Fragment>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </div>
-
-          {/* Stats: traffic remaining | days remaining */}
-          <div className="grid grid-cols-2 mt-2">
-            <div className="pr-3 border-r border-foreground/10 justify-items-center">
-              <div className="text-[11px] text-muted-foreground">
-                {t('profile.trafficRemaining')}
-              </div>
-              <div className="text-sm font-bold mt-0.5 leading-tight">
-                {hasLimit ? trafficRemaining : <InfinityIcon className="size-5" />}
-              </div>
-            </div>
-            <div className="pl-3 justify-items-center">
-              <div className="text-[11px] text-muted-foreground">
-                {t('profile.daysRemaining')}
-              </div>
-              <div className="text-sm font-bold mt-0.5 leading-tight">
-                {extra?.expire ? daysRemaining : <InfinityIcon className="size-5" />}
-              </div>
-            </div>
-          </div>
-
-
-          {/* Footer */}
-          <div className="border-t border-foreground/10 mt-3 pt-2 flex items-center justify-between text-[11px] text-muted-foreground">
-            {info.type === 'remote' ? (
-              <>
-                <span>
-                  {t('profile.updatedAt')}: {updatedFromNow}
-                </span>
-                {intervalLabel && (
-                  <span className="flex items-center gap-1">
-                    <Clock className="size-3" />
-                    {intervalLabel}
-                  </span>
-                )}
-              </>
-            ) : (
-              <span>{t('profile.localProfileLabel')}</span>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
+          onChange={(open) => {
+            if (!open) setDialog(null)
+          }}
+          onConfirm={async () => {
+            setDialog(null)
+            await run(() => removeProfileItem(info.id))
+          }}
+        />
+      )}
+    </article>
   )
 }
-
-export default ProfileItem

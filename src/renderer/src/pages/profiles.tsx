@@ -10,11 +10,13 @@ import {
   DndContext,
   closestCenter,
   PointerSensor,
+  KeyboardSensor,
   useSensor,
   useSensors,
   DragEndEvent
 } from '@dnd-kit/core'
-import { SortableContext } from '@dnd-kit/sortable'
+import { SortableContext, sortableKeyboardCoordinates, arrayMove } from '@dnd-kit/sortable'
+import { Input } from '@renderer/components/ui/input'
 import { useTranslation } from 'react-i18next'
 import { Plus, FileDown, RefreshCcw } from 'lucide-react'
 
@@ -33,6 +35,7 @@ const Profiles: React.FC = () => {
   const { current, items } = profileConfig || {}
   const itemsArray = items ?? emptyItems
   const [sortedItems, setSortedItems] = useState(itemsArray)
+  const [query, setQuery] = useState('')
   const [updating, setUpdating] = useState(false)
   const [switching, setSwitching] = useState(false)
   const [fileOver, setFileOver] = useState(false)
@@ -43,7 +46,8 @@ const Profiles: React.FC = () => {
       activationConstraint: {
         distance: 2
       }
-    })
+    }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   )
   const pageRef = useRef<HTMLDivElement>(null)
   const dragCounterRef = useRef(0)
@@ -54,16 +58,17 @@ const Profiles: React.FC = () => {
 
   const onDragEnd = async (event: DragEndEvent): Promise<void> => {
     const { active, over } = event
-    if (over) {
-      if (active.id !== over.id) {
-        const newOrder = sortedItems.slice()
-        const activeIndex = newOrder.findIndex((item) => item.id === active.id)
-        const overIndex = newOrder.findIndex((item) => item.id === over.id)
-        newOrder.splice(activeIndex, 1)
-        newOrder.splice(overIndex, 0, itemsArray[activeIndex])
-        setSortedItems(newOrder)
-        await setProfileConfig({ current, items: newOrder })
-      }
+    if (!over || active.id === over.id || query) return
+    const activeIndex = sortedItems.findIndex((item) => item.id === active.id)
+    const overIndex = sortedItems.findIndex((item) => item.id === over.id)
+    if (activeIndex < 0 || overIndex < 0) return
+    const newOrder = arrayMove(sortedItems, activeIndex, overIndex)
+    setSortedItems(newOrder)
+    try {
+      await setProfileConfig({ current, items: newOrder })
+    } catch (error) {
+      setSortedItems(itemsArray)
+      toast.error(String(error))
     }
   }
 
@@ -97,6 +102,7 @@ const Profiles: React.FC = () => {
     setFileOver(false)
     if (event.dataTransfer?.files) {
       const file = event.dataTransfer.files[0]
+      if (!file) return
       if (
         file.name.endsWith('.yml') ||
         file.name.endsWith('.yaml') ||
@@ -151,44 +157,48 @@ const Profiles: React.FC = () => {
   }
 
   return (
-    <BasePage
-      ref={pageRef}
-      title={t('pages.profiles.title')}
-      header={
-        <>
-          <Button
-            className="new-profile app-nodrag"
-            variant="ghost"
-            size="icon-sm"
-            onClick={handleAddProfile}
-          >
-            <Plus />
-          </Button>
-          <Button
-            size="icon-sm"
-            title={t('pages.profiles.updateAll')}
-            className="app-nodrag"
-            variant="ghost"
-            aria-label={t('pages.profiles.updateAll')}
-            onClick={async () => {
-              setUpdating(true)
-              for (const item of itemsArray) {
-                if (item.id === current) continue
+    <BasePage ref={pageRef} title={t('pages.profiles.title')} contentClassName="ui-page">
+      <div className="ui-toolbar mb-5">
+        <Input
+          className="min-w-40 flex-1"
+          aria-label={t('common.search')}
+          placeholder={t('common.search')}
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        <Button className="new-profile" onClick={handleAddProfile}>
+          <Plus />
+          {t('pages.profiles.addProfile')}
+        </Button>
+        <Button
+          variant="outline"
+          disabled={updating || !itemsArray.some((item) => item.type === 'remote')}
+          onClick={async () => {
+            if (updating) return
+            setUpdating(true)
+            try {
+              const ordered = [
+                ...itemsArray.filter((item) => item.id !== current),
+                ...itemsArray.filter((item) => item.id === current)
+              ]
+              for (const item of ordered) {
                 if (item.type !== 'remote') continue
-                await addProfileItem(item)
+                try {
+                  await addProfileItem(item)
+                } catch (error) {
+                  toast.error(`${item.name}: ${error}`)
+                }
               }
-              const currentItem = itemsArray.find((item) => item.id === current)
-              if (currentItem && currentItem.type === 'remote') {
-                await addProfileItem(currentItem)
-              }
+            } finally {
               setUpdating(false)
-            }}
-          >
-            <RefreshCcw className={`text-lg ${updating ? 'animate-spin' : ''}`} />
-          </Button>
-        </>
-      }
-    >
+            }
+          }}
+        >
+          <RefreshCcw className={updating ? 'animate-spin' : ''} />
+          {t('pages.profiles.updateAll')}
+        </Button>
+      </div>
+      <p className="ui-description mb-4">{t('redesign.profileHint')}</p>
       {showEditModal && editingItem && (
         <EditInfoModal
           item={editingItem}
@@ -215,10 +225,22 @@ const Profiles: React.FC = () => {
         </div>
       )}
 
+      {query &&
+        !sortedItems.some((item) =>
+          item.name.toLowerCase().includes(query.trim().toLowerCase())
+        ) && (
+          <p role="status" className="ui-panel">
+            {t('redesign.noResults')}
+          </p>
+        )}
       {sortedItems.length === 0 ? (
-        <div className="h-full w-full flex justify-center items-center">
+        <div className="ui-panel min-h-64 w-full flex justify-center items-center">
           <div className="flex flex-col items-center gap-3">
-            <Button className="rounded-full w-20 h-20 hover:bg-card" variant="outline" onClick={handleAddProfile}>
+            <Button
+              className="rounded-full w-20 h-20 hover:bg-card"
+              variant="outline"
+              onClick={handleAddProfile}
+            >
               <Plus className="text-muted-foreground size-10" />
             </Button>
             <h2 className="text-muted-foreground text-lg font-medium">
@@ -231,29 +253,34 @@ const Profiles: React.FC = () => {
         </div>
       ) : (
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2 mx-2 mb-2">
+          <div className="flex flex-col gap-3">
             <SortableContext
               items={sortedItems.map((item) => {
                 return item.id
               })}
             >
-              {sortedItems.map((item) => (
-                <ProfileItem
-                  key={item.id}
-                  isCurrent={item.id === current}
-                  addProfileItem={addProfileItem}
-                  removeProfileItem={removeProfileItem}
-                  updateProfileItem={updateProfileItem}
-                  info={item}
-                  switching={switching}
-                  onClick={async () => {
-                    setSwitching(true)
-                    await changeCurrentProfile(item.id)
-                    await new Promise((resolve) => setTimeout(resolve, 500))
-                    setSwitching(false)
-                  }}
-                />
-              ))}
+              {sortedItems
+                .filter((item) => item.name.toLowerCase().includes(query.trim().toLowerCase()))
+                .map((item) => (
+                  <ProfileItem
+                    key={item.id}
+                    isCurrent={item.id === current}
+                    addProfileItem={addProfileItem}
+                    removeProfileItem={removeProfileItem}
+                    updateProfileItem={updateProfileItem}
+                    info={item}
+                    switching={switching}
+                    sortingDisabled={Boolean(query)}
+                    onClick={async () => {
+                      setSwitching(true)
+                      try {
+                        await changeCurrentProfile(item.id)
+                      } finally {
+                        setSwitching(false)
+                      }
+                    }}
+                  />
+                ))}
             </SortableContext>
           </div>
         </DndContext>

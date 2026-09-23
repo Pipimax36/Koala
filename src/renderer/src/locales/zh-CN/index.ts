@@ -1,5 +1,12 @@
 export default {
   redesign: {
+    profileHint: '管理订阅来源和更新状态。使用左侧拖动柄排序，搜索时暂停排序。',
+    noResults: '没有匹配结果',
+    useProfile: '使用此订阅',
+    moreActions: '更多操作',
+    reorderProfile: '排序 {{name}}',
+    deleteCurrentHint: '删除后将沿用现有行为：切换到剩余第一份订阅；没有剩余订阅时显示添加引导。',
+
     back: '返回',
     proxyMode: '代理模式',
     defaultMode: '默认模式',
