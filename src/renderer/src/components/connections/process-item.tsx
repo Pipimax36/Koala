@@ -23,16 +23,18 @@ interface Props {
   onClick: (processPath: string) => void
 }
 
-const ProcessItemComponent: React.FC<Props> = ({ process, displayIcon, displayAppName, onClick }) => {
+const ProcessItemComponent: React.FC<Props> = ({
+  process,
+  displayIcon,
+  displayAppName,
+  onClick
+}) => {
   const { t } = useTranslation()
   const iconUrl = useProcessIcon(process.processPath, displayIcon)
   const appName = useProcessAppName(process.processPath, displayAppName)
 
   const uploadTraffic = useMemo(() => calcTraffic(process.totalUpload), [process.totalUpload])
-  const downloadTraffic = useMemo(
-    () => calcTraffic(process.totalDownload),
-    [process.totalDownload]
-  )
+  const downloadTraffic = useMemo(() => calcTraffic(process.totalDownload), [process.totalDownload])
 
   const uploadSpeed = useMemo(
     () => (process.totalUploadSpeed ? calcTraffic(process.totalUploadSpeed) : null),
@@ -63,6 +65,14 @@ const ProcessItemComponent: React.FC<Props> = ({ process, displayIcon, displayAp
               : 'border-border bg-card/40 hover:bg-accent/50'
           }
         `}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            onClick(process.processPath)
+          }
+        }}
         onClick={() => onClick(process.processPath)}
       >
         <div className="w-full flex items-center">
