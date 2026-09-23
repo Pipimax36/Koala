@@ -1,94 +1,58 @@
-import React from 'react'
-import { toast } from 'sonner'
 import SettingCard from '../base/base-setting-card'
 import SettingItem from '../base/base-setting-item'
 import { Button } from '@renderer/components/ui/button'
 import { Switch } from '@renderer/components/ui/switch'
 import ProxyModeTabs from '@renderer/components/home/proxy-mode-tabs'
-import { useControledMihomoConfig } from '@renderer/hooks/use-controled-mihomo-config'
-import { useAppConfig } from '@renderer/hooks/use-app-config'
-import { triggerSysProxy, updateTrayIcon, mihomoHotReloadConfig } from '@renderer/utils/ipc'
+import OutboundMode from '@renderer/components/sider/outbound-mode-switcher'
+import { useProxyControl } from '@renderer/hooks/use-proxy-control'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Settings } from 'lucide-react'
 
-const ProxySwitches: React.FC = () => {
+export default function ProxySwitches() {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const { controledMihomoConfig, patchControledMihomoConfig } = useControledMihomoConfig()
-  const { tun } = controledMihomoConfig || {}
-  const { appConfig, patchAppConfig } = useAppConfig()
-  const { sysProxy, proxyMode = false, onlyActiveDevice = false } = appConfig || {}
-  const { enable: writeSysProxy = true, mode } = sysProxy || {}
-  const { 'mixed-port': mixedPort } = controledMihomoConfig || {}
-  const sysProxyDisabled = mixedPort == 0
-
+  const { mode, enabled, busy, ready, portDisabled, error, apply } = useProxyControl()
   return (
     <SettingCard>
-      <SettingItem title={t('settings.advanced.mainSwitch')} divider>
+      <SettingItem title={t('redesign.proxyMode')} divider>
         <ProxyModeTabs />
       </SettingItem>
       <SettingItem
-        title={t('sider.virtualInterface')}
-        actions={
-          <Button size="icon-sm" variant="ghost" onClick={() => navigate('/tun')}>
-            <Settings className="text-lg" />
-          </Button>
-        }
+        title={t(busy ? 'redesign.applying' : enabled ? 'redesign.enabled' : 'redesign.disabled')}
         divider
       >
         <Switch
-          checked={tun?.enable}
-          onCheckedChange={async (enable: boolean) => {
-            if (enable) {
-              await patchControledMihomoConfig({ tun: { enable }, dns: { enable: true } })
-            } else {
-              await patchControledMihomoConfig({ tun: { enable } })
-            }
-            window.electron.ipcRenderer.send('updateFloatingWindow')
-            window.electron.ipcRenderer.send('updateTrayMenu')
-            await updateTrayIcon()
-          }}
+          aria-label={t('redesign.proxyMode')}
+          checked={enabled}
+          disabled={busy || !ready || (!enabled && portDisabled)}
+          onCheckedChange={(activate) => void apply(mode, activate)}
         />
       </SettingItem>
-      <SettingItem
-        title={t('sider.proxyMode')}
-        actions={
-          <Button size="icon-sm" variant="ghost" onClick={() => navigate('/sysproxy')}>
-            <Settings className="text-lg" />
-          </Button>
-        }
-      >
-        <Switch
-          checked={proxyMode}
-          disabled={writeSysProxy && mode == 'manual' && sysProxyDisabled}
-          onCheckedChange={async (enable: boolean) => {
-            if (enable && writeSysProxy && mode == 'manual' && sysProxyDisabled) return
-            try {
-              if (enable) {
-                await patchAppConfig({ proxyMode: true })
-                await mihomoHotReloadConfig()
-                if (writeSysProxy) {
-                  await triggerSysProxy(true, onlyActiveDevice)
-                }
-              } else {
-                if (writeSysProxy) {
-                  await triggerSysProxy(false, onlyActiveDevice)
-                }
-                await patchAppConfig({ proxyMode: false })
-                await mihomoHotReloadConfig()
-              }
-              window.electron.ipcRenderer.send('updateFloatingWindow')
-              window.electron.ipcRenderer.send('updateTrayMenu')
-              await updateTrayIcon()
-            } catch (e) {
-              toast.error(`${e}`)
-            }
-          }}
-        />
+      {portDisabled && !enabled && (
+        <p role="status" className="ui-description my-3">
+          {t('redesign.portDisabled')}
+        </p>
+      )}
+      {error && (
+        <p role="alert" className="my-3 break-words text-sm text-destructive">
+          {error}
+        </p>
+      )}
+      <p className="ui-description my-3">{t('redesign.settingsProxyHint')}</p>
+      <SettingItem title={t('redesign.outboundMode')}>
+        <OutboundMode />
       </SettingItem>
+      <div className="ui-toolbar mt-4">
+        <Button variant="outline" onClick={() => navigate('/sysproxy')}>
+          <Settings />
+          {t('sider.proxyMode')}
+        </Button>
+        <Button variant="outline" onClick={() => navigate('/tun')}>
+          <Settings />
+          {t('sider.virtualInterface')}
+        </Button>
+      </div>
     </SettingCard>
   )
 }
-
-export default ProxySwitches

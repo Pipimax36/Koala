@@ -58,6 +58,7 @@ const GeneralConfig: React.FC<GeneralConfigProps> = (props) => {
       <SettingCard>
         <SettingItem title={t('settings.general.autoStart')} divider>
           <Switch
+            aria-label={t('settings.general.autoStart')}
             checked={enable}
             onCheckedChange={async (value) => {
               try {
@@ -76,6 +77,7 @@ const GeneralConfig: React.FC<GeneralConfigProps> = (props) => {
         </SettingItem>
         <SettingItem title={t('settings.general.silentStart')} divider>
           <Switch
+            aria-label={t('settings.general.silentStart')}
             checked={silentStart}
             onCheckedChange={(value) => {
               patchAppConfig({ silentStart: value })
@@ -84,6 +86,7 @@ const GeneralConfig: React.FC<GeneralConfigProps> = (props) => {
         </SettingItem>
         <SettingItem title={t('settings.general.autoCheckUpdate')} divider={showHiddenSettings}>
           <Switch
+            aria-label={t('settings.general.autoCheckUpdate')}
             checked={autoCheckUpdate}
             onCheckedChange={(value) => {
               patchAppConfig({ autoCheckUpdate: value })
@@ -105,6 +108,7 @@ const GeneralConfig: React.FC<GeneralConfigProps> = (props) => {
             }
           >
             <Switch
+              aria-label={t('settings.general.disableGPU')}
               checked={pendingDisableGPU}
               onCheckedChange={(value) => {
                 setPendingDisableGPU(value)

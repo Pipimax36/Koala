@@ -1,5 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { toast } from 'sonner'
+import { mutate } from 'swr'
+import { patchAppConfig as persistAppConfig } from '@renderer/utils/ipc'
 import SettingCard from '../base/base-setting-card'
 import SettingItem from '../base/base-setting-item'
 import { Button } from '@renderer/components/ui/button'
@@ -48,6 +50,9 @@ const AppearanceConfig: React.FC<AppearanceConfigProps> = (props) => {
   const [customThemes, setCustomThemes] = useState<{ key: string; label: string }[]>()
   const [openCSSEditor, setOpenCSSEditor] = useState(false)
   const [fetching, setFetching] = useState(false)
+  const [themeBusy, setThemeBusy] = useState(false)
+  const themeLock = useRef(false)
+  const [themeError, setThemeError] = useState<string | null>(null)
   const { setTheme } = useTheme()
   const {
     useDockIcon = true,
@@ -68,10 +73,12 @@ const AppearanceConfig: React.FC<AppearanceConfigProps> = (props) => {
   }, [showFloating])
 
   useEffect(() => {
-    resolveThemes().then((themes) => {
-      setCustomThemes(themes)
-    })
-    isAlwaysOnTop().then(setOnTop)
+    resolveThemes()
+      .then(setCustomThemes)
+      .catch((error) => toast.error(String(error)))
+    isAlwaysOnTop()
+      .then(setOnTop)
+      .catch((error) => toast.error(String(error)))
   }, [])
 
   useEffect(() => {
@@ -81,6 +88,35 @@ const AppearanceConfig: React.FC<AppearanceConfigProps> = (props) => {
       }
     }
   }, [])
+
+  const saveTheme = async (
+    patch: Partial<Pick<AppConfig, 'appTheme' | 'customTheme'>>
+  ): Promise<void> => {
+    if (themeLock.current) return
+    themeLock.current = true
+    setThemeBusy(true)
+    setThemeError(null)
+    const previous = { appTheme, customTheme }
+    try {
+      await persistAppConfig(patch)
+      if (patch.appTheme) setTheme(patch.appTheme)
+      if (patch.customTheme) await applyTheme(patch.customTheme)
+    } catch (error) {
+      let message = String(error)
+      try {
+        await persistAppConfig(previous)
+        setTheme(previous.appTheme)
+        await applyTheme(previous.customTheme)
+      } catch (recoveryError) {
+        message += `; ${t('redesign.recoveryFailed')}: ${recoveryError}`
+      }
+      setThemeError(message)
+    } finally {
+      await Promise.allSettled([mutate('getConfig')])
+      themeLock.current = false
+      setThemeBusy(false)
+    }
+  }
 
   return (
     <>
@@ -95,7 +131,30 @@ const AppearanceConfig: React.FC<AppearanceConfigProps> = (props) => {
           }}
         />
       )}
-      <SettingCard title={t('settings.appearance.title')}>
+      <SettingCard title={t('settings.appearance.title')} defaultExpanded>
+        {themeError && (
+          <p role="alert" className="mb-3 text-sm text-destructive">
+            {themeError}
+          </p>
+        )}
+        <SettingItem title={t('settings.appearance.backgroundColor')} divider>
+          <Tabs
+            value={appTheme}
+            onValueChange={(value) => void saveTheme({ appTheme: value as AppTheme })}
+          >
+            <TabsList>
+              <TabsTrigger disabled={themeBusy} value="system">
+                {t('settings.appearance.auto')}
+              </TabsTrigger>
+              <TabsTrigger disabled={themeBusy} value="dark">
+                {t('settings.appearance.dark')}
+              </TabsTrigger>
+              <TabsTrigger disabled={themeBusy} value="light">
+                {t('settings.appearance.light')}
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </SettingItem>
         <SettingItem
           title={t('settings.appearance.showFloatingWindow')}
           actions={
@@ -111,6 +170,7 @@ const AppearanceConfig: React.FC<AppearanceConfigProps> = (props) => {
           divider
         >
           <Switch
+            aria-label={t('settings.appearance.showFloatingWindow')}
             checked={localShowFloating}
             onCheckedChange={async (value) => {
               if (timeoutRef.current) {
@@ -135,6 +195,7 @@ const AppearanceConfig: React.FC<AppearanceConfigProps> = (props) => {
         {localShowFloating && (
           <SettingItem title={t('settings.appearance.rotateFloatingIcon')} divider>
             <Switch
+              aria-label={t('settings.appearance.rotateFloatingIcon')}
               checked={spinFloatingIcon}
               onCheckedChange={async (value) => {
                 await patchAppConfig({ spinFloatingIcon: value })
@@ -145,6 +206,7 @@ const AppearanceConfig: React.FC<AppearanceConfigProps> = (props) => {
         )}
         <SettingItem title={t('settings.appearance.disableTrayIcon')} divider>
           <Switch
+            aria-label={t('settings.appearance.disableTrayIcon')}
             checked={disableTray}
             onCheckedChange={async (value) => {
               await patchAppConfig({ disableTray: value })
@@ -160,6 +222,7 @@ const AppearanceConfig: React.FC<AppearanceConfigProps> = (props) => {
           <>
             <SettingItem title={t('settings.appearance.trayShowNodeInfo')} divider>
               <Switch
+                aria-label={t('settings.appearance.trayShowNodeInfo')}
                 checked={proxyInTray}
                 onCheckedChange={async (value) => {
                   await patchAppConfig({ proxyInTray: value })
@@ -172,6 +235,7 @@ const AppearanceConfig: React.FC<AppearanceConfigProps> = (props) => {
           <>
             <SettingItem title={t('settings.appearance.showDockIcon')} divider>
               <Switch
+                aria-label={t('settings.appearance.showDockIcon')}
                 checked={useDockIcon}
                 onCheckedChange={async (value) => {
                   await patchAppConfig({ useDockIcon: value })
@@ -183,6 +247,7 @@ const AppearanceConfig: React.FC<AppearanceConfigProps> = (props) => {
         )}
         <SettingItem title={t('settings.appearance.alwaysOnTop')} divider>
           <Switch
+            aria-label={t('settings.appearance.alwaysOnTop')}
             checked={onTop}
             onCheckedChange={async (value) => {
               await setAlwaysOnTop(value)
@@ -192,6 +257,7 @@ const AppearanceConfig: React.FC<AppearanceConfigProps> = (props) => {
         </SettingItem>
         <SettingItem title={t('settings.appearance.useSystemTitleBar')} divider>
           <Switch
+            aria-label={t('settings.appearance.useSystemTitleBar')}
             checked={useWindowFrame}
             onCheckedChange={async (value) => {
               await patchAppConfig({ useWindowFrame: value })
@@ -199,21 +265,7 @@ const AppearanceConfig: React.FC<AppearanceConfigProps> = (props) => {
             }}
           />
         </SettingItem>
-        <SettingItem title={t('settings.appearance.backgroundColor')} divider={showHiddenSettings}>
-          <Tabs
-            value={appTheme}
-            onValueChange={(value) => {
-              setTheme(value)
-              patchAppConfig({ appTheme: value as AppTheme })
-            }}
-          >
-            <TabsList>
-              <TabsTrigger value="system">{t('settings.appearance.auto')}</TabsTrigger>
-              <TabsTrigger value="dark">{t('settings.appearance.dark')}</TabsTrigger>
-              <TabsTrigger value="light">{t('settings.appearance.light')}</TabsTrigger>
-            </TabsList>
-          </Tabs>
-        </SettingItem>
+
         {showHiddenSettings && (
           <SettingItem
             title={t('settings.appearance.theme')}
@@ -275,13 +327,8 @@ const AppearanceConfig: React.FC<AppearanceConfigProps> = (props) => {
             {customThemes && (
               <Select
                 value={customTheme}
-                onValueChange={async (value) => {
-                  try {
-                    await patchAppConfig({ customTheme: value })
-                  } catch (e) {
-                    toast.error(`${e}`)
-                  }
-                }}
+                disabled={themeBusy}
+                onValueChange={(value) => void saveTheme({ customTheme: value })}
               >
                 <SelectTrigger size="sm" className="w-[60%]">
                   <SelectValue />

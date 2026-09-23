@@ -35,11 +35,11 @@ export function useProxyControl() {
     [refresh]
   )
   const enabled = Boolean(
-    (runtimeError ? controledMihomoConfig?.tun?.enable : runtime?.tun?.enable) ||
+    (runtimeError || !runtime ? controledMihomoConfig?.tun?.enable : runtime.tun?.enable) ||
     appConfig?.proxyMode
   )
   const mode = appConfig?.mainSwitchMode ?? 'tun'
-  const ready = Boolean(appConfig && controledMihomoConfig)
+  const ready = Boolean(appConfig && controledMihomoConfig && (runtime || runtimeError))
   const portDisabled =
     mode === 'sysproxy' &&
     appConfig?.sysProxy?.enable !== false &&

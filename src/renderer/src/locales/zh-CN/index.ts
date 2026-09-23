@@ -1,5 +1,12 @@
 export default {
   redesign: {
+    settingsHint: '管理外观、启动与代理偏好；各项设置沿用已有配置。',
+    appearanceLanguage: '外观与语言',
+    startupPreferences: '启动偏好',
+    proxyPreferences: '代理与网络',
+    advancedPreferences: '高级设置与应用',
+    settingsProxyHint: '与首页使用相同的代理状态。未启用时切换模式不会连接；已启用时切换需确认。',
+
     saved: '已保存并应用',
     coreReady: '内核运行中',
     restarting: '正在重启…',
