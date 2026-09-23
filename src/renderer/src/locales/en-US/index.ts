@@ -1,5 +1,18 @@
 export default {
   redesign: {
+    ruleScope:
+      'Rules apply to “{{name}}”. Custom overrides are stored separately and retained across subscription updates.',
+    rulesInactive:
+      'Rule-based routing is inactive in the current outbound mode. Change the outbound mode on Home.',
+    ruleSource: 'Rule source',
+    runtimeRules: 'Active core rules',
+    customRules: 'Custom overrides',
+    prependRules: 'Custom · prepend (matched first)',
+    appendRules: 'Custom · append',
+    deleteRules: 'Override · remove subscription rule',
+    noRules: 'No runtime rules. Check the active subscription and core.',
+    noCustomRules: 'No custom overrides. Use Edit rules to add them.',
+
     followLogs: 'Auto-scroll',
     allLevels: 'All levels',
     noLogs: 'No logs yet. New core logs will appear here.',

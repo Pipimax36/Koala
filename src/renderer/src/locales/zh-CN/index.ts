@@ -1,5 +1,16 @@
 export default {
   redesign: {
+    ruleScope: '规则作用于订阅「{{name}}」。自定义规则单独保存，订阅更新时继续保留。',
+    rulesInactive: '当前出站模式不是规则模式，以下规则不会用于常规分流。可在首页更改出站模式。',
+    ruleSource: '规则来源',
+    runtimeRules: '当前生效规则',
+    customRules: '自定义覆盖',
+    prependRules: '自定义 · 前置（优先匹配）',
+    appendRules: '自定义 · 追加',
+    deleteRules: '覆盖 · 移除订阅规则',
+    noRules: '暂无运行规则，请检查当前订阅和内核状态。',
+    noCustomRules: '暂无自定义覆盖，可通过编辑规则添加。',
+
     followLogs: '自动滚动',
     allLevels: '全部级别',
     noLogs: '暂无日志，内核产生新日志后将在此显示。',

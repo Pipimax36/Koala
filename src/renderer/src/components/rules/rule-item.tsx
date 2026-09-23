@@ -1,36 +1,19 @@
-import { Badge } from '@renderer/components/ui/badge'
-import { Card, CardContent } from '@renderer/components/ui/card'
 import React from 'react'
-
-const RuleItem: React.FC<ControllerRulesDetail & { index: number }> = (props) => {
-  const { type, payload, proxy, index } = props
-  return (
-    <div className={`px-2 pb-2 ${index === 0 ? 'pt-2' : ''}`}>
-      <Card className="gap-0 py-0">
-        <CardContent className="w-full px-3 py-2">
-          {payload &&
-            <div
-              title={payload}
-              className="text-sm text-ellipsis whitespace-nowrap overflow-hidden mb-1"
-            >
-              {payload}
-            </div>
-          }
-          <div className="flex gap-1.5">
-            <Badge variant="outline" className="rounded-sm">
-              {type}
-            </Badge>
-            <Badge
-              variant="outline"
-              className="rounded-sm flag-emoji whitespace-nowrap overflow-hidden"
-            >
-              {proxy}
-            </Badge>
-          </div>
-        </CardContent>
-      </Card>
+const RuleItem: React.FC<ControllerRulesDetail & { index: number }> = ({
+  type,
+  payload,
+  proxy,
+  index
+}) => (
+  <article className="flex items-start gap-4 border-b px-4 py-3 text-sm">
+    <span className="w-8 shrink-0 pt-0.5 text-xs tabular-nums text-muted-foreground">
+      {index + 1}
+    </span>
+    <div className="min-w-0 flex-1">
+      <p className="select-text break-words font-mono">{payload || type}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{type}</p>
     </div>
-  )
-}
-
+    <span className="max-w-[35%] break-words rounded-md bg-muted px-2 py-1 text-xs">{proxy}</span>
+  </article>
+)
 export default RuleItem
