@@ -24,6 +24,7 @@ const initialInfo: ConnectionsInfo = {
   memory: 0
 }
 
+let pausedPayload: ControllerConnections | null = null
 let previousActiveMap = new Map<string, ControllerConnectionDetail>()
 
 export const useConnectionsStore = create<ConnectionsStore>((set) => ({
@@ -31,13 +32,21 @@ export const useConnectionsStore = create<ConnectionsStore>((set) => ({
   closed: [],
   info: initialInfo,
   isPaused: false,
-  togglePause: (): void => set((s) => ({ isPaused: !s.isPaused })),
+  togglePause: (): void => {
+    const wasPaused = useConnectionsStore.getState().isPaused
+    set({ isPaused: !wasPaused })
+    if (wasPaused && pausedPayload) {
+      const latest = pausedPayload
+      pausedPayload = null
+      handleIpcPayload(latest, true)
+    }
+  },
   removeClosedById: (id): void =>
     set((s) => ({ closed: s.closed.filter((conn) => conn.id !== id) })),
   clearAllClosed: (): void => set({ closed: [] })
 }))
 
-const handleIpcPayload = (payload: ControllerConnections): void => {
+const handleIpcPayload = (payload: ControllerConnections, resetSpeeds = false): void => {
   const { uploadTotal, downloadTotal, memory } = payload
   const state = useConnectionsStore.getState()
   const prevInfo = state.info
@@ -51,7 +60,10 @@ const handleIpcPayload = (payload: ControllerConnections): void => {
     useConnectionsStore.setState({ info: { uploadTotal, downloadTotal, memory } })
   }
 
-  if (state.isPaused) return
+  if (state.isPaused) {
+    pausedPayload = payload
+    return
+  }
   const incoming = payload.connections
   if (!incoming) return
 
@@ -64,8 +76,8 @@ const handleIpcPayload = (payload: ControllerConnections): void => {
     }
 
     const pre = previousActiveMap.get(conn.id)
-    conn.downloadSpeed = pre ? conn.download - pre.download : 0
-    conn.uploadSpeed = pre ? conn.upload - pre.upload : 0
+    conn.downloadSpeed = pre && !resetSpeeds ? Math.max(0, conn.download - pre.download) : 0
+    conn.uploadSpeed = pre && !resetSpeeds ? Math.max(0, conn.upload - pre.upload) : 0
     conn.isActive = true
 
     previousActiveMap.delete(conn.id)
@@ -116,6 +128,7 @@ export const attachConnectionsStore = (): (() => void) => {
       window.electron.ipcRenderer.removeListener('mihomoConnections', ipcListener)
       ipcListener = null
     }
+    pausedPayload = null
     previousActiveMap = new Map()
     useConnectionsStore.setState({
       active: [],

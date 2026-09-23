@@ -1,119 +1,114 @@
 import BasePage from '@renderer/components/base/base-page'
 import LogItem from '@renderer/components/logs/log-item'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@renderer/components/ui/button'
-import { Separator } from '@renderer/components/ui/separator'
 import { Input } from '@renderer/components/ui/input'
-import { cn } from '@renderer/lib/utils'
-import { Virtuoso, VirtuosoHandle } from 'react-virtuoso'
+import ConfirmModal from '@renderer/components/base/base-confirm'
+import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso'
 import { useTranslation } from 'react-i18next'
-
 import { useLogsStore } from '@renderer/store/logs-store'
 import { includesIgnoreCase } from '@renderer/utils/includes'
-import { MapPin, Trash2 } from 'lucide-react'
+import { MapPin, Trash2, Pause, Play } from 'lucide-react'
 
-const Logs: React.FC = () => {
+export default function Logs() {
   const { t } = useTranslation()
-  const clearLogs = useLogsStore((s) => s.clear)
-  const [logs, setLogs] = useState<ControllerLog[]>(() => useLogsStore.getState().logs)
-  const [filter, setFilter] = useState('')
-  const [trace, setTrace] = useState(true)
-  const traceRef = useRef(trace)
-
-  const virtuosoRef = useRef<VirtuosoHandle>(null)
-  const isInitialRef = useRef(true)
-  const filteredLogs = useMemo(() => {
-    if (filter === '') return logs
-    return logs.filter((log) => {
-      return includesIgnoreCase(log.payload, filter) || includesIgnoreCase(log.type, filter)
-    })
-  }, [logs, filter])
-
-  const toggleTrace = useCallback(() => {
-    setTrace((prev) => {
-      const next = !prev
-      traceRef.current = next
-      if (next) {
-        setLogs([...useLogsStore.getState().logs])
-      }
-      return next
-    })
-  }, [])
-
+  const [logs, setLogs] = useState(() => useLogsStore.getState().logs)
+  const [query, setQuery] = useState('')
+  const [level, setLevel] = useState('all')
+  const [paused, setPaused] = useState(false)
+  const [follow, setFollow] = useState(true)
+  const [confirmClear, setConfirmClear] = useState(false)
+  const list = useRef<VirtuosoHandle>(null)
   useEffect(() => {
-    if (!trace) return
-    virtuosoRef.current?.scrollToIndex({
-      index: filteredLogs.length - 1,
-      behavior: isInitialRef.current ? 'auto' : 'smooth',
-      align: 'end',
-      offset: 0
-    })
-    isInitialRef.current = false
-  }, [filteredLogs, trace])
-
+    if (paused) return
+    setLogs(useLogsStore.getState().logs)
+    return useLogsStore.subscribe((state) => setLogs(state.logs))
+  }, [paused])
+  const filtered = useMemo(
+    () =>
+      logs.filter(
+        (log) => (level === 'all' || log.type === level) && includesIgnoreCase(log.payload, query)
+      ),
+    [logs, level, query]
+  )
   useEffect(() => {
-    return useLogsStore.subscribe((state) => {
-      if (traceRef.current) {
-        setLogs([...state.logs])
-      }
-    })
-  }, [])
-
+    if (follow && !paused && filtered.length)
+      list.current?.scrollToIndex({ index: filtered.length - 1, align: 'end' })
+  }, [follow, paused, filtered.length])
   return (
-    <BasePage title={t('pages.logs.title')}>
-      <div className="sticky top-0 z-40">
-        <div className="w-full flex px-2 pb-2">
-          <Input
-            className="h-8 text-sm"
-            value={filter}
-            placeholder={t('common.filter')}
-            onChange={(e) => setFilter(e.target.value)}
-          />
-          <Button
-            size="icon-sm"
-            className={cn('ml-2 p-0 bg-clip-border', trace && 'bg-primary text-primary-foreground')}
-            variant={trace ? 'default' : 'outline'}
-            title={t('logs.autoScroll')}
-            onClick={toggleTrace}
-          >
-            <MapPin className="text-lg" />
-          </Button>
-          <Button
-            size="icon-sm"
-            title={t('pages.logs.clearLogs')}
-            className="ml-2 p-0 bg-clip-border"
-            variant="ghost"
-            onClick={() => {
-              clearLogs()
-              setLogs([])
-            }}
-          >
-            <Trash2 className="text-lg text-destructive" />
-          </Button>
-        </div>
-        <Separator className="mx-2" />
+    <BasePage
+      title={t('pages.logs.title')}
+      contentClassName="ui-page flex flex-col overflow-hidden"
+    >
+      <div className="ui-toolbar mb-3 shrink-0">
+        <Input
+          className="min-w-40 flex-1"
+          aria-label={t('common.search')}
+          placeholder={t('common.search')}
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        <select
+          aria-label={t('pages.mihomo.logLevel')}
+          className="h-9 rounded-lg border bg-background px-3 text-sm"
+          value={level}
+          onChange={(event) => setLevel(event.target.value)}
+        >
+          <option value="all">{t('redesign.allLevels')}</option>
+          {['debug', 'info', 'warning', 'error'].map((value) => (
+            <option key={value} value={value}>
+              {value.toUpperCase()}
+            </option>
+          ))}
+        </select>
+        <Button variant="outline" onClick={() => setPaused(!paused)} aria-pressed={paused}>
+          {paused ? <Play /> : <Pause />}
+          {t(paused ? 'connections.resume' : 'connections.pause')}
+        </Button>
+        <Button
+          variant={follow ? 'secondary' : 'outline'}
+          aria-pressed={follow}
+          onClick={() => setFollow(!follow)}
+        >
+          <MapPin />
+          {t('redesign.followLogs')}
+        </Button>
+        <Button variant="ghost" disabled={logs.length === 0} onClick={() => setConfirmClear(true)}>
+          <Trash2 />
+          {t('pages.logs.clearLogs')}
+        </Button>
       </div>
-      <div className="h-[calc(100vh-108px)] mt-px">
-        <Virtuoso
-          ref={virtuosoRef}
-          data={filteredLogs}
-          initialItemCount={Math.min(filteredLogs.length, 15)}
-          followOutput={trace}
-          itemContent={(i, log) => {
-            return (
-              <LogItem
-                index={i}
-                key={log.payload + i}
-                time={log.time}
-                type={log.type}
-                payload={log.payload}
-              />
-            )
+      <p role="status" className="ui-description mb-4 shrink-0">
+        {t(paused ? 'redesign.logsPaused' : 'redesign.logsHint')} · {filtered.length}/{logs.length}
+      </p>
+      <div className="min-h-0 flex-1 overflow-hidden rounded-xl border bg-card">
+        {filtered.length === 0 ? (
+          <p className="p-8 text-center text-sm text-muted-foreground">
+            {t(query || level !== 'all' ? 'redesign.noResults' : 'redesign.noLogs')}
+          </p>
+        ) : (
+          <Virtuoso
+            ref={list}
+            data={filtered}
+            followOutput={follow && !paused}
+            itemContent={(index, log) => <LogItem {...log} index={index} />}
+          />
+        )}
+      </div>
+      {confirmClear && (
+        <ConfirmModal
+          title={t('pages.logs.clearLogs')}
+          description={t('redesign.clearLogsHint')}
+          onChange={(open) => {
+            if (!open) setConfirmClear(false)
+          }}
+          onConfirm={() => {
+            useLogsStore.getState().clear()
+            setLogs([])
+            setConfirmClear(false)
           }}
         />
-      </div>
+      )}
     </BasePage>
   )
 }
-
-export default Logs

@@ -1,5 +1,20 @@
 export default {
   redesign: {
+    followLogs: 'Auto-scroll',
+    allLevels: 'All levels',
+    noLogs: 'No logs yet. New core logs will appear here.',
+    logsHint:
+      'Live core logs; the latest 500 entries are retained. Auto-scroll and display pause are independent.',
+    logsPaused: 'Display paused. Logs continue arriving; resume to show the latest buffer.',
+    clearLogsHint:
+      'Clear the in-memory log buffer for this window. Disk logs are not deleted and the core keeps logging.',
+    connectionsHint: 'Live connections. Pausing freezes the list without interrupting traffic.',
+    connectionsPaused: 'List paused. Traffic continues; resuming shows the latest state.',
+    connectionScope:
+      'Only the {{count}} records currently shown are affected. Other processes and filtered-out connections remain untouched. Apps may reconnect.',
+    disconnectFailed:
+      '{{count}} connection operations failed. Check the current state before retrying.',
+
     previewSubscription: 'Preview another subscription',
     liveNodes: 'Live nodes',
     previewHint:

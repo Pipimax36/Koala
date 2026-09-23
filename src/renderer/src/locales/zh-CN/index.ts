@@ -1,5 +1,17 @@
 export default {
   redesign: {
+    followLogs: '自动滚动',
+    allLevels: '全部级别',
+    noLogs: '暂无日志，内核产生新日志后将在此显示。',
+    logsHint: '实时展示内核日志，最多保留最近 500 条。自动滚动与暂停展示相互独立。',
+    logsPaused: '已暂停展示；后台继续接收日志，恢复后显示最新缓存。',
+    clearLogsHint: '清空此窗口共享的内存日志缓存，不删除磁盘日志，也不停止内核记录。',
+    connectionsHint: '实时连接状态。暂停仅冻结列表，不中断网络。',
+    connectionsPaused: '列表已暂停；网络继续运行，恢复后更新至最新状态。',
+    connectionScope:
+      '仅处理确认时当前列表中的 {{count}} 条记录，不影响其他进程或筛选范围外的连接。应用可能自动重连。',
+    disconnectFailed: '{{count}} 条连接操作失败，请检查当前状态后重试。',
+
     previewSubscription: '预览备用订阅',
     liveNodes: '当前运行节点',
     previewHint: '只读预览：不会切换订阅或当前节点，不能在预览中选择或测速。',

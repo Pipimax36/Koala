@@ -1,7 +1,9 @@
+import { toast } from 'sonner'
+import ConfirmModal from '@renderer/components/base/base-confirm'
 import BasePage from '@renderer/components/base/base-page'
-import { mihomoCloseAllConnections, mihomoCloseConnection } from '@renderer/utils/ipc'
+import { mihomoCloseConnection } from '@renderer/utils/ipc'
 import { useConnectionsStore } from '@renderer/store/connections-store'
-import React, { useCallback, useMemo, useState } from 'react'
+import React, { useCallback, useMemo, useState, useRef } from 'react'
 import { Badge } from '@renderer/components/ui/badge'
 import { Button } from '@renderer/components/ui/button'
 import {
@@ -92,7 +94,9 @@ const Connections: React.FC = () => {
   const isPaused = useConnectionsStore((s) => s.isPaused)
   const togglePause = useConnectionsStore((s) => s.togglePause)
   const removeClosedById = useConnectionsStore((s) => s.removeClosedById)
-  const clearAllClosed = useConnectionsStore((s) => s.clearAllClosed)
+  const [bulkTargets, setBulkTargets] = useState<{ ids: string[]; active: boolean } | null>(null)
+  const [closing, setClosing] = useState(false)
+  const closingIds = useRef(new Set<string>())
 
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
   const [isSettingModalOpen, setIsSettingModalOpen] = useState(false)
@@ -281,24 +285,37 @@ const Connections: React.FC = () => {
     selectedProcess
   ])
 
-  const closeAllConnections = useCallback((): void => {
-    if (tab === 'active') {
-      mihomoCloseAllConnections()
-    } else {
-      clearAllClosed()
-    }
-  }, [tab, clearAllClosed])
-
   const closeConnection = useCallback(
-    (id: string): void => {
-      if (tab === 'active') {
-        mihomoCloseConnection(id)
-      } else {
-        removeClosedById(id)
+    async (id: string): Promise<void> => {
+      if (closingIds.current.has(id)) return
+      closingIds.current.add(id)
+      try {
+        if (tab === 'active') await mihomoCloseConnection(id)
+        else removeClosedById(id)
+      } catch (error) {
+        toast.error(String(error))
+      } finally {
+        closingIds.current.delete(id)
       }
     },
     [tab, removeClosedById]
   )
+
+  const closeBulk = async (): Promise<void> => {
+    if (!bulkTargets || closing) return
+    const targets = bulkTargets
+    setBulkTargets(null)
+    setClosing(true)
+    try {
+      if (targets.active) {
+        const results = await Promise.allSettled(targets.ids.map((id) => mihomoCloseConnection(id)))
+        const failures = results.filter((result) => result.status === 'rejected')
+        if (failures.length) toast.error(t('redesign.disconnectFailed', { count: failures.length }))
+      } else targets.ids.forEach(removeClosedById)
+    } finally {
+      setClosing(false)
+    }
+  }
 
   const handleColumnWidthChange = useCallback(
     async (widths: Record<string, number>) => {
@@ -521,9 +538,10 @@ const Connections: React.FC = () => {
   return (
     <BasePage
       title={title}
+      contentClassName="ui-page flex flex-col overflow-hidden"
       header={
         <div className="flex items-center gap-1">
-          <div className="flex h-8 items-center gap-1 whitespace-nowrap">
+          <div className="hidden lg:flex h-8 items-center gap-1 whitespace-nowrap">
             <span className="px-1 text-gray-400">
               {'\u2191'} {calcTraffic(info.uploadTotal)}
             </span>
@@ -574,15 +592,13 @@ const Connections: React.FC = () => {
                 }
                 size="icon-sm"
                 variant="ghost"
-                onClick={() => {
-                  if (filter === '') {
-                    closeAllConnections()
-                  } else {
-                    filteredConnections.forEach((conn) => {
-                      closeConnection(conn.id)
-                    })
-                  }
-                }}
+                disabled={closing || filteredConnections.length === 0}
+                onClick={() =>
+                  setBulkTargets({
+                    ids: filteredConnections.map((conn) => conn.id),
+                    active: tab === 'active'
+                  })
+                }
               >
                 {tab === 'active' ? (
                   <X className="size-4" />
@@ -613,8 +629,23 @@ const Connections: React.FC = () => {
       {isSettingModalOpen && (
         <ConnectionSettingModal onClose={() => setIsSettingModalOpen(false)} />
       )}
-      <div className="overflow-x-auto sticky top-0 z-40">
-        <div className="flex px-2 pb-2 gap-2">
+      {bulkTargets && (
+        <ConfirmModal
+          title={t(
+            bulkTargets.active ? 'pages.connections.closeAll' : 'pages.connections.clearClosed'
+          )}
+          description={t('redesign.connectionScope', { count: bulkTargets.ids.length })}
+          onChange={(open) => {
+            if (!open) setBulkTargets(null)
+          }}
+          onConfirm={closeBulk}
+        />
+      )}
+      <p role="status" className="ui-description mb-3 shrink-0">
+        {t(isPaused ? 'redesign.connectionsPaused' : 'redesign.connectionsHint')}
+      </p>
+      <div className="shrink-0 overflow-x-auto">
+        <div className="flex flex-wrap pb-3 gap-2">
           {isProcessListView ? (
             <>
               <div className="flex h-8 items-center">
@@ -625,10 +656,11 @@ const Connections: React.FC = () => {
                   {processGroups.length}
                 </Badge>
               </div>
-              <InputGroup className="h-8 w-45 min-w-30">
+              <InputGroup className="h-8 min-w-32 flex-1">
                 <InputGroupInput
                   className="h-8 text-sm"
                   value={filter}
+                  aria-label={t('common.search')}
                   placeholder={t('common.filter')}
                   onChange={(event) => setFilter(event.target.value)}
                 />
@@ -638,7 +670,7 @@ const Connections: React.FC = () => {
                     variant="ghost"
                     className={filter ? '' : 'opacity-0 pointer-events-none'}
                     disabled={!filter}
-                    aria-label="Clear filter"
+                    aria-label={t('pages.connections.clearFilter')}
                     onClick={() => setFilter('')}
                   >
                     <X className="text-base" />
@@ -678,10 +710,11 @@ const Connections: React.FC = () => {
                   </TabsTrigger>
                 </TabsList>
               </Tabs>
-              <InputGroup className="h-8 w-45 min-w-30">
+              <InputGroup className="h-8 min-w-32 flex-1">
                 <InputGroupInput
                   className="h-8 text-sm"
                   value={filter}
+                  aria-label={t('common.search')}
                   placeholder={t('common.filter')}
                   onChange={(event) => setFilter(event.target.value)}
                 />
@@ -691,7 +724,7 @@ const Connections: React.FC = () => {
                     variant="ghost"
                     className={filter ? '' : 'opacity-0 pointer-events-none'}
                     disabled={!filter}
-                    aria-label="Clear filter"
+                    aria-label={t('pages.connections.clearFilter')}
                     onClick={() => setFilter('')}
                   >
                     <X className="text-base" />
@@ -726,7 +759,7 @@ const Connections: React.FC = () => {
               {viewMode === 'list' && (
                 <>
                   <Select value={connectionOrderBy} onValueChange={handleOrderByChange}>
-                    <SelectTrigger size="sm" className="min-w-50">
+                    <SelectTrigger size="sm" className="min-w-36">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent position="popper">
@@ -762,7 +795,7 @@ const Connections: React.FC = () => {
           )}
         </div>
       </div>
-      <div className="h-[calc(100vh-106px)] mt-px mb-2">
+      <div className="min-h-0 flex-1 overflow-hidden rounded-xl border bg-card">
         {isProcessListView ? (
           filteredProcessGroups.length === 0 ? (
             processesEmptyState
