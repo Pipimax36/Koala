@@ -1,3 +1,7 @@
+import CoreStatus from '@renderer/components/mihomo/core-status'
+import { applyCorePatch } from '@renderer/utils/core-config'
+import { patchAppConfig as persistAppConfig } from '@renderer/utils/ipc'
+import { mutate } from 'swr'
 import { toast } from 'sonner'
 import { Button } from '@renderer/components/ui/button'
 import { Input } from '@renderer/components/ui/input'
@@ -74,9 +78,11 @@ const Mihomo: React.FC = () => {
   const { t } = useTranslation()
   const { appConfig, patchAppConfig } = useAppConfig()
   const { core = 'mihomo', maxLogDays = 7, corePermissionMode = 'elevated' } = appConfig || {}
-  const { controledMihomoConfig, patchControledMihomoConfig } = useControledMihomoConfig()
+  const { controledMihomoConfig } = useControledMihomoConfig()
   const { ipv6, 'log-level': logLevel = 'info' } = controledMihomoConfig || {}
 
+  const [configBusy, setConfigBusy] = useState(false)
+  const [configError, setConfigError] = useState<string | null>(null)
   const [upgrading, setUpgrading] = useState(false)
   const [showGrantConfirm, setShowGrantConfirm] = useState(false)
   const [showUnGrantConfirm, setShowUnGrantConfirm] = useState(false)
@@ -96,16 +102,44 @@ const Mihomo: React.FC = () => {
   }, [])
 
   const onChangeNeedRestart = async (patch: Partial<MihomoConfig>): Promise<void> => {
-    await patchControledMihomoConfig(patch)
+    if (configBusy) return
+    setConfigBusy(true)
+    setConfigError(null)
+    try {
+      await applyCorePatch(patch)
+    } catch (error) {
+      setConfigError(String(error))
+    } finally {
+      await Promise.allSettled([mutate('getControledMihomoConfig'), mutate('mihomoConfig')])
+      setConfigBusy(false)
+    }
   }
 
   const handleConfigChangeWithRestart = async (key: string, value: unknown): Promise<void> => {
+    if (configBusy) return
+    setConfigBusy(true)
+    setConfigError(null)
+    const previous = appConfig?.[key as keyof AppConfig] ?? (key === 'core' ? 'mihomo' : '')
     try {
-      await patchAppConfig({ [key]: value })
+      await persistAppConfig({ [key]: value })
       await restartCore()
       PubSub.publish('mihomo-core-changed')
-    } catch (e) {
-      toast.error(`${e}`)
+    } catch (error) {
+      let message = String(error)
+      try {
+        await persistAppConfig({ [key]: previous })
+        await restartCore()
+      } catch (recoveryError) {
+        message += `; ${t('redesign.recoveryFailed')}: ${recoveryError}`
+      }
+      setConfigError(message)
+    } finally {
+      await Promise.allSettled([
+        mutate('getConfig'),
+        mutate('mihomoVersion'),
+        mutate('mihomoConfig')
+      ])
+      setConfigBusy(false)
     }
   }
 
@@ -194,9 +228,7 @@ const Mihomo: React.FC = () => {
     {
       key: 'confirm',
       text:
-        platform === 'win32'
-          ? t('pages.mihomo.noRestartCancel')
-          : t('pages.mihomo.confirmRevoke'),
+        platform === 'win32' ? t('pages.mihomo.noRestartCancel') : t('pages.mihomo.confirmRevoke'),
       variant: 'destructive',
       onPress: async () => {
         try {
@@ -229,7 +261,13 @@ const Mihomo: React.FC = () => {
   ]
 
   return (
-    <BasePage title={t('pages.mihomo.title')}>
+    <BasePage title={t('pages.mihomo.title')} contentClassName="ui-page">
+      <CoreStatus />
+      {configError && (
+        <p role="alert" className="ui-panel mb-4 break-words text-sm text-destructive">
+          {configError}
+        </p>
+      )}
       {showGrantConfirm && (
         <ConfirmModal
           onChange={setShowGrantConfirm}
@@ -306,157 +344,160 @@ const Mihomo: React.FC = () => {
           }}
         />
       )}
-      <SettingCard>
-        <SettingItem
-          title={t('pages.mihomo.coreVersion')}
-          actions={
-            core === 'mihomo' || core === 'mihomo-alpha' ? (
-              <Button
-                size="icon-sm"
-                title={t('pages.mihomo.upgradeCore')}
-                variant="ghost"
-                disabled={upgrading}
-                aria-busy={upgrading}
-                onClick={handleCoreUpgrade}
-              >
-                {upgrading ? (
-                  <Spinner className="size-4" />
-                ) : (
-                  <CloudDownload className="text-lg" />
-                )}
-              </Button>
-            ) : null
-          }
-          divider
-        >
-          <Select
-            value={core}
-            onValueChange={(value) =>
-              handleCoreChange(value as 'mihomo' | 'mihomo-alpha' | 'system')
+      <fieldset disabled={configBusy || upgrading}>
+        <SettingCard>
+          <SettingItem
+            title={t('pages.mihomo.coreVersion')}
+            actions={
+              core === 'mihomo' || core === 'mihomo-alpha' ? (
+                <Button
+                  size="icon-sm"
+                  title={t('pages.mihomo.upgradeCore')}
+                  variant="ghost"
+                  disabled={upgrading}
+                  aria-busy={upgrading}
+                  onClick={handleCoreUpgrade}
+                >
+                  {upgrading ? (
+                    <Spinner className="size-4" />
+                  ) : (
+                    <CloudDownload className="text-lg" />
+                  )}
+                </Button>
+              ) : null
             }
+            divider
           >
-            <SelectTrigger size="sm" className="w-[300px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="mihomo">{t('pages.mihomo.builtinStable')}</SelectItem>
-              <SelectItem value="mihomo-alpha">{t('pages.mihomo.builtinPreview')}</SelectItem>
-              <SelectItem value="system">{t('pages.mihomo.useSystemCore')}</SelectItem>
-            </SelectContent>
-          </Select>
-        </SettingItem>
-        {core === 'system' && (
-          <SettingItem title={t('pages.mihomo.systemCorePath')} divider>
             <Select
-              value={appConfig?.systemCorePath}
-              disabled={loadingPaths}
-              onValueChange={(value) => {
-                if (value) handleConfigChangeWithRestart('systemCorePath', value)
-              }}
+              value={core}
+              onValueChange={(value) =>
+                handleCoreChange(value as 'mihomo' | 'mihomo-alpha' | 'system')
+              }
             >
-              <SelectTrigger size="sm" className="w-[350px]">
-                <SelectValue
-                  placeholder={
-                    loadingPaths
-                      ? t('pages.mihomo.searchingCore')
-                      : t('pages.mihomo.coreNotFound')
-                  }
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {loadingPaths ? (
-                  <SelectItem value="">{t('pages.mihomo.searchingCore')}</SelectItem>
-                ) : systemCorePaths.length > 0 ? (
-                  systemCorePaths.map((path) => (
-                    <SelectItem key={path} value={path}>
-                      {path}
-                    </SelectItem>
-                  ))
-                ) : (
-                  <SelectItem value="">{t('pages.mihomo.coreNotFound')}</SelectItem>
-                )}
-              </SelectContent>
-            </Select>
-            {!loadingPaths && systemCorePaths.length === 0 && (
-              <div className="mt-2 text-sm text-warning">
-                {t('pages.mihomo.coreNotFoundWarning')}
-              </div>
-            )}
-          </SettingItem>
-        )}
-        <SettingItem title={t('pages.mihomo.runningMode')} divider>
-          <Tabs value={corePermissionMode} onValueChange={handlePermissionModeChange}>
-            <TabsList>
-              <TabsTrigger value="elevated">
-                {platform === 'win32'
-                  ? t('pages.mihomo.taskSchedule')
-                  : t('pages.mihomo.authorizedRun')}
-              </TabsTrigger>
-              <TabsTrigger value="service" disabled>
-                {t('pages.mihomo.systemService')}
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
-        </SettingItem>
-        <SettingItem
-          title={platform === 'win32' ? t('pages.mihomo.taskStatus') : t('pages.mihomo.authStatus')}
-          divider
-        >
-          <Button size="sm" onClick={() => setShowPermissionModal(true)}>
-            {t('pages.mihomo.manage')}
-          </Button>
-        </SettingItem>
-        <SettingItem title={t('pages.mihomo.serviceStatus')} divider>
-          <Button size="sm" onClick={() => setShowServiceModal(true)}>
-            {t('pages.mihomo.manage')}
-          </Button>
-        </SettingItem>
-        <SettingItem title="IPv6" divider>
-          <Switch
-            checked={ipv6}
-            onCheckedChange={(v) => onChangeNeedRestart({ ipv6: v })}
-          />
-        </SettingItem>
-        <SettingItem title={t('pages.mihomo.logRetentionDays')} divider>
-          <Input
-            type="number"
-            className="h-8 w-[100px]"
-            value={maxLogDays.toString()}
-            onChange={(event) =>
-              patchAppConfig({ maxLogDays: parseInt(event.target.value) })
-            }
-          />
-        </SettingItem>
-        <SettingItem title={t('pages.mihomo.logLevel')}>
-          {/* Скрытые копии всех вариантов задают ширину по самому длинному из них */}
-          <div className="grid">
-            {logLevelOptions.map((option) => (
-              <span
-                key={option.value}
-                aria-hidden
-                className="col-start-1 row-start-1 h-0 overflow-hidden border border-transparent pl-3 pr-9 text-sm whitespace-nowrap invisible"
-              >
-                {option.label}
-              </span>
-            ))}
-            <Select
-              value={logLevel}
-              onValueChange={(value) => onChangeNeedRestart({ 'log-level': value as LogLevel })}
-            >
-              <SelectTrigger size="sm" className="col-start-1 row-start-1 w-full">
+              <SelectTrigger size="sm" className="w-60 max-w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {logLevelOptions.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
+                <SelectItem value="mihomo">{t('pages.mihomo.builtinStable')}</SelectItem>
+                <SelectItem value="mihomo-alpha">{t('pages.mihomo.builtinPreview')}</SelectItem>
+                <SelectItem value="system">{t('pages.mihomo.useSystemCore')}</SelectItem>
               </SelectContent>
             </Select>
-          </div>
-        </SettingItem>
-      </SettingCard>
+          </SettingItem>
+          {core === 'system' && (
+            <SettingItem title={t('pages.mihomo.systemCorePath')} divider>
+              <Select
+                value={appConfig?.systemCorePath}
+                disabled={loadingPaths}
+                onValueChange={(value) => {
+                  if (value) handleConfigChangeWithRestart('systemCorePath', value)
+                }}
+              >
+                <SelectTrigger size="sm" className="w-60 max-w-full">
+                  <SelectValue
+                    placeholder={
+                      loadingPaths
+                        ? t('pages.mihomo.searchingCore')
+                        : t('pages.mihomo.coreNotFound')
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {loadingPaths ? (
+                    <SelectItem value="unavailable" disabled>
+                      {t('pages.mihomo.searchingCore')}
+                    </SelectItem>
+                  ) : systemCorePaths.length > 0 ? (
+                    systemCorePaths.map((path) => (
+                      <SelectItem key={path} value={path}>
+                        {path}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <SelectItem value="unavailable" disabled>
+                      {t('pages.mihomo.coreNotFound')}
+                    </SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
+              {!loadingPaths && systemCorePaths.length === 0 && (
+                <div className="mt-2 text-sm text-warning">
+                  {t('pages.mihomo.coreNotFoundWarning')}
+                </div>
+              )}
+            </SettingItem>
+          )}
+          <SettingItem title={t('pages.mihomo.runningMode')} divider>
+            <Tabs value={corePermissionMode} onValueChange={handlePermissionModeChange}>
+              <TabsList>
+                <TabsTrigger value="elevated">
+                  {platform === 'win32'
+                    ? t('pages.mihomo.taskSchedule')
+                    : t('pages.mihomo.authorizedRun')}
+                </TabsTrigger>
+                <TabsTrigger value="service" disabled>
+                  {t('pages.mihomo.systemService')}
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </SettingItem>
+          <SettingItem
+            title={
+              platform === 'win32' ? t('pages.mihomo.taskStatus') : t('pages.mihomo.authStatus')
+            }
+            divider
+          >
+            <Button size="sm" onClick={() => setShowPermissionModal(true)}>
+              {t('pages.mihomo.manage')}
+            </Button>
+          </SettingItem>
+          <SettingItem title={t('pages.mihomo.serviceStatus')} divider>
+            <Button size="sm" onClick={() => setShowServiceModal(true)}>
+              {t('pages.mihomo.manage')}
+            </Button>
+          </SettingItem>
+          <SettingItem title="IPv6" divider>
+            <Switch checked={ipv6} onCheckedChange={(v) => onChangeNeedRestart({ ipv6: v })} />
+          </SettingItem>
+          <SettingItem title={t('pages.mihomo.logRetentionDays')} divider>
+            <Input
+              type="number"
+              className="h-8 w-[100px]"
+              value={maxLogDays.toString()}
+              onChange={(event) => patchAppConfig({ maxLogDays: parseInt(event.target.value) })}
+            />
+          </SettingItem>
+          <SettingItem title={t('pages.mihomo.logLevel')}>
+            {/* Скрытые копии всех вариантов задают ширину по самому длинному из них */}
+            <div className="grid">
+              {logLevelOptions.map((option) => (
+                <span
+                  key={option.value}
+                  aria-hidden
+                  className="col-start-1 row-start-1 h-0 overflow-hidden border border-transparent pl-3 pr-9 text-sm whitespace-nowrap invisible"
+                >
+                  {option.label}
+                </span>
+              ))}
+              <Select
+                value={logLevel}
+                onValueChange={(value) => onChangeNeedRestart({ 'log-level': value as LogLevel })}
+              >
+                <SelectTrigger size="sm" className="col-start-1 row-start-1 w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {logLevelOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </SettingItem>
+        </SettingCard>
+      </fieldset>
       <PortSetting />
       <ControllerSetting />
       <EnvSetting />

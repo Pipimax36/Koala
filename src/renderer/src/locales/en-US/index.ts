@@ -1,5 +1,18 @@
 export default {
   redesign: {
+    saved: 'Saved and applied',
+    coreReady: 'Core running',
+    restarting: 'Restarting…',
+    restartCore: 'Restart core',
+    coreRestarted: 'Core restarted',
+    restartCoreHint:
+      'Restarting briefly interrupts connections and retains the current proxy configuration.',
+    coreStateHint:
+      'Core availability and proxy activation are separate. Restarting does not enable an inactive proxy mode.',
+    portHint:
+      'Ports range from 0 to 65535; 0 disables a port. Enabled ports must be unique. Changes are applied only after the core accepts them.',
+    invalidPorts: 'Enter integers from 0 to 65535 with no duplicate enabled ports.',
+
     ruleScope:
       'Rules apply to “{{name}}”. Custom overrides are stored separately and retained across subscription updates.',
     rulesInactive:

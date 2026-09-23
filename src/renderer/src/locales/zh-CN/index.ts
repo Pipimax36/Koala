@@ -1,5 +1,15 @@
 export default {
   redesign: {
+    saved: '已保存并应用',
+    coreReady: '内核运行中',
+    restarting: '正在重启…',
+    restartCore: '重启内核',
+    coreRestarted: '内核已重启',
+    restartCoreHint: '重启会短暂中断连接，并沿用当前代理配置。',
+    coreStateHint: '内核运行状态与代理启用状态独立；重启不会主动启用已关闭的代理模式。',
+    portHint: '端口范围 0–65535；0 表示禁用。非零端口不能重复，修改后需内核成功加载才算应用完成。',
+    invalidPorts: '请输入 0–65535 的整数，且非零端口不能重复。',
+
     ruleScope: '规则作用于订阅「{{name}}」。自定义规则单独保存，订阅更新时继续保留。',
     rulesInactive: '当前出站模式不是规则模式，以下规则不会用于常规分流。可在首页更改出站模式。',
     ruleSource: '规则来源',
