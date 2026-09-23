@@ -56,13 +56,12 @@ const EditInfoModal: React.FC<Props> = (props) => {
   const isLocal = values.type === 'local'
   const urlInvalid = !isLocal && urlTouched && !!values.url && !isValidUrl(values.url)
 
-  const canImport = isNew
-    ? isLocal
-      ? !!values.file
-      : isValidUrl(values.url || '')
-    : true
+  const canImport = isLocal ? !isNew || Boolean(values.file) : isValidUrl(values.url || '')
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   const onSave = async (): Promise<void> => {
+    if (saving || !canImport) return
+    setSaveError(null)
     setSaving(true)
     try {
       const itemToSave = { ...values }
@@ -72,7 +71,7 @@ const EditInfoModal: React.FC<Props> = (props) => {
       }
       closeRef.current?.click()
     } catch (e) {
-      toast.error(`${e}`)
+      setSaveError(String(e))
     } finally {
       setSaving(false)
     }
@@ -135,13 +134,13 @@ const EditInfoModal: React.FC<Props> = (props) => {
     <Dialog
       open={true}
       onOpenChange={(open) => {
-        if (!open) onClose()
+        if (!open && !saving) onClose()
       }}
     >
       <DialogContent
         className={cn(
           'sm:max-w-none',
-          'w-120'
+          'w-[min(480px,calc(100vw-24px))] max-h-[90vh] overflow-y-auto'
         )}
         showCloseButton={false}
         onOpenAutoFocus={(e) => e.preventDefault()}
@@ -194,8 +193,10 @@ const EditInfoModal: React.FC<Props> = (props) => {
                     data-guide="profile-import-url-input"
                     className={cn(
                       'h-9 pr-9',
-                      urlInvalid && 'border-destructive focus-visible:border-destructive focus-visible:ring-destructive/50'
+                      urlInvalid &&
+                        'border-destructive focus-visible:border-destructive focus-visible:ring-destructive/50'
                     )}
+                    aria-label={t('profile.subscriptionAddress')}
                     placeholder={t('profile.urlPlaceholder')}
                     value={values.url || ''}
                     onChange={(e) => {
@@ -396,9 +397,7 @@ const EditInfoModal: React.FC<Props> = (props) => {
                               <MessageCircleQuestionMark className="text-lg" />
                             </Button>
                           </TooltipTrigger>
-                          <TooltipContent>
-                            {t('profile.updateIntervalLockedHelp')}
-                          </TooltipContent>
+                          <TooltipContent>{t('profile.updateIntervalLockedHelp')}</TooltipContent>
                         </Tooltip>
                       )
                     }
@@ -407,9 +406,7 @@ const EditInfoModal: React.FC<Props> = (props) => {
                       type="number"
                       className="h-8 w-24"
                       value={values.interval?.toString() ?? ''}
-                      onChange={(e) =>
-                        setValues({ ...values, interval: parseInt(e.target.value) })
-                      }
+                      onChange={(e) => setValues({ ...values, interval: parseInt(e.target.value) })}
                       disabled={values.locked}
                     />
                   </SettingItem>
@@ -419,9 +416,14 @@ const EditInfoModal: React.FC<Props> = (props) => {
           </div>
         )}
 
+        {saveError && (
+          <p role="alert" className="text-sm text-destructive break-words">
+            {saveError}
+          </p>
+        )}
         <DialogFooter>
           <DialogClose asChild>
-            <Button size="sm" variant="ghost">
+            <Button size="sm" variant="ghost" disabled={saving}>
               {t('common.cancel')}
             </Button>
           </DialogClose>

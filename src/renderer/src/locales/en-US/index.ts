@@ -1,5 +1,14 @@
 export default {
   redesign: {
+    profileHint:
+      'Manage subscriptions and updates. Use the drag handle to reorder; sorting is disabled while searching.',
+    noResults: 'No matching results',
+    useProfile: 'Use subscription',
+    moreActions: 'More actions',
+    reorderProfile: 'Reorder {{name}}',
+    deleteCurrentHint:
+      'After deletion, the first remaining subscription is selected. If none remain, the add-subscription guide is shown.',
+
     back: 'Back',
     proxyMode: 'Proxy mode',
     defaultMode: 'Default mode',

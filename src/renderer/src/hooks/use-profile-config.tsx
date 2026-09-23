@@ -1,5 +1,11 @@
-import React, { createContext, useContext, ReactNode, useEffect, useState, useCallback } from 'react'
-import { toast } from 'sonner'
+import React, {
+  createContext,
+  useContext,
+  ReactNode,
+  useEffect,
+  useState,
+  useCallback
+} from 'react'
 import useSWR from 'swr'
 import {
   getProfileConfig,
@@ -44,8 +50,6 @@ export const ProfileConfigProvider: React.FC<{ children: ReactNode }> = ({ child
   const setProfileConfig = async (config: ProfileConfig): Promise<void> => {
     try {
       await set(config)
-    } catch (e) {
-      toast.error(`${e}`)
     } finally {
       mutateProfileConfig()
       window.electron.ipcRenderer.send('updateTrayMenu')
@@ -58,9 +62,8 @@ export const ProfileConfigProvider: React.FC<{ children: ReactNode }> = ({ child
     } catch (e) {
       if (`${e}`.includes('HWID_LIMIT')) {
         setHwidLimitErrorFromMessage(`${e}`)
-      } else {
-        toast.error(`${e}`)
       }
+      throw e
     } finally {
       mutateProfileConfig()
       window.electron.ipcRenderer.send('updateTrayMenu')
@@ -70,8 +73,6 @@ export const ProfileConfigProvider: React.FC<{ children: ReactNode }> = ({ child
   const removeProfileItem = async (id: string): Promise<void> => {
     try {
       await remove(id)
-    } catch (e) {
-      toast.error(`${e}`)
     } finally {
       mutateProfileConfig()
       window.electron.ipcRenderer.send('updateTrayMenu')
@@ -81,8 +82,6 @@ export const ProfileConfigProvider: React.FC<{ children: ReactNode }> = ({ child
   const updateProfileItem = async (item: ProfileItem): Promise<void> => {
     try {
       await update(item)
-    } catch (e) {
-      toast.error(`${e}`)
     } finally {
       mutateProfileConfig()
       window.electron.ipcRenderer.send('updateTrayMenu')
@@ -92,8 +91,6 @@ export const ProfileConfigProvider: React.FC<{ children: ReactNode }> = ({ child
   const changeCurrentProfile = async (id: string): Promise<void> => {
     try {
       await change(id)
-    } catch (e) {
-      toast.error(`${e}`)
     } finally {
       mutateProfileConfig()
       window.electron.ipcRenderer.send('updateTrayMenu')
